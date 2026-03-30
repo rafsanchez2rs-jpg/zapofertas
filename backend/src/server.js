@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const cors = require('cors');
 const http = require('http');
 const WebSocket = require('ws');
 const QRCode = require('qrcode');
@@ -87,15 +88,7 @@ waManager.on('rate_limited', (rl) => broadcast({ status: 'rate_limited', until: 
 waManager.on('max_reconnect_reached', () => broadcast({ status: 'max_reconnect_reached' }));
 
 // ── Middleware ────────────────────────────────────────────────────────────────
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', '*');
-  res.setHeader('Access-Control-Allow-Headers', '*');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
+app.use(cors());
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));

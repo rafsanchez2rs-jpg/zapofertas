@@ -48,7 +48,7 @@ RUN cd frontend && npm run build
 
 # Backend
 COPY backend/package*.json ./backend/
-RUN cd backend && npm install --production --no-cache
+RUN cd backend && npm install
 
 COPY backend/ ./backend/
 
