@@ -23,7 +23,8 @@
       "Bash(sqlite3:*)",
       "Bash(\"/d/IA/AutomaçãoAnuncios/zapOfertas/frontend/.env.production\":*)",
       "Bash(\"/d/IA/AutomaçãoAnuncios/zapOfertas/nixpacks.toml\":*)",
-      "Bash(\"/d/IA/AutomaçãoAnuncios/zapOfertas/railway.json\":*)"
+      "Bash(\"/d/IA/AutomaçãoAnuncios/zapOfertas/railway.json\":*)",
+      "Bash(npm uninstall:*)"
     ]
   }
 }

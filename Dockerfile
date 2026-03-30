@@ -37,7 +37,7 @@ WORKDIR /app
 
 # Build frontend com URL hardcoded
 COPY frontend/package*.json ./frontend/
-RUN cd frontend && npm install
+RUN cd frontend && npm install --no-cache
 
 COPY frontend/ ./frontend/
 
@@ -48,7 +48,7 @@ RUN cd frontend && npm run build
 
 # Backend
 COPY backend/package*.json ./backend/
-RUN cd backend && npm install --production
+RUN cd backend && npm install --production --no-cache
 
 COPY backend/ ./backend/
 

@@ -21,6 +21,7 @@ const adminRoutes = require('./routes/admin');
 const dashboardRoutes = require('./routes/dashboard');
 
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 
 // ── WebSocket server — broadcast WhatsApp events to all authenticated clients ─
