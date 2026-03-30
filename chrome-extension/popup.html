@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ZapOfertas Capturar</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 340px;
+      min-height: 180px;
+      background: #0f0f0f;
+      color: #f5f5f5;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 13px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 14px;
+      border-bottom: 1px solid #2a2a2a;
+    }
+    .logo-icon {
+      width: 24px;
+      height: 24px;
+      background: #00d96c;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .logo-icon svg { width: 14px; height: 14px; }
+    .logo-text { font-weight: 700; font-size: 14px; color: #f5f5f5; }
+    #platform-badge {
+      display: none;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      margin-left: auto;
+      margin-right: 4px;
+    }
+    .logo-sub { font-size: 10px; color: #a1a1aa; }
+
+    /* States */
+    .state { display: none; padding: 16px 14px; }
+    .state.active { display: block; }
+
+    /* Not supported */
+    .centered-msg {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 28px 14px;
+      text-align: center;
+    }
+    .msg-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+    }
+    .msg-title { font-weight: 700; font-size: 14px; color: #f5f5f5; }
+    .msg-body { color: #a1a1aa; line-height: 1.5; max-width: 240px; }
+    .msg-body strong { color: #f5f5f5; }
+
+    /* Not product — instruction box */
+    .instruction-box {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      padding: 14px;
+      width: 100%;
+      text-align: left;
+    }
+    .instruction-box p { color: #a1a1aa; font-size: 12px; margin-bottom: 8px; }
+    .instruction-box ol {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .instruction-box ol li {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      color: #d4d4d4;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .step-num {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #00d96c20;
+      border: 1px solid #00d96c40;
+      color: #00d96c;
+      font-size: 10px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    /* Loading */
+    .loading {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 24px 14px;
+    }
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid #2a2a2a;
+      border-top-color: #00d96c;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Product card */
+    .product-card {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .product-thumb {
+      width: 64px;
+      height: 64px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: #1a1a1a;
+      flex-shrink: 0;
+      border: 1px solid #2a2a2a;
+    }
+    .product-thumb-placeholder {
+      width: 64px;
+      height: 64px;
+      border-radius: 8px;
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: #3a3a3a;
+      font-size: 22px;
+    }
+    .product-info { flex: 1; min-width: 0; }
+    .product-name {
+      font-weight: 600;
+      color: #f5f5f5;
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      margin-bottom: 6px;
+    }
+    .price-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .price-sale { font-weight: 700; color: #00d96c; font-size: 16px; }
+    .price-original { color: #6b7280; text-decoration: line-through; font-size: 11px; }
+    .discount-badge {
+      background: #00d96c20;
+      color: #00d96c;
+      border: 1px solid #00d96c30;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .pix-row { color: #a1a1aa; font-size: 11px; margin-top: 2px; }
+    .pix-value { color: #86efac; font-weight: 600; }
+
+    /* Divider */
+    .divider { height: 1px; background: #2a2a2a; margin: 10px 0; }
+
+    /* Buttons */
+    .btn {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+    .btn-primary { background: #00d96c; color: #000; }
+    .btn-primary:hover { background: #00b358; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary {
+      background: #1a1a1a;
+      color: #f5f5f5;
+      border: 1px solid #2a2a2a;
+      margin-top: 8px;
+    }
+    .btn-secondary:hover { background: #2a2a2a; }
+
+    /* Success */
+    .success-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      text-align: center;
+      padding: 24px 14px;
+    }
+    .success-icon {
+      width: 48px;
+      height: 48px;
+      background: #00d96c20;
+      border: 1px solid #00d96c40;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+    }
+    .success-title { font-weight: 700; color: #00d96c; font-size: 14px; }
+    .success-sub { color: #a1a1aa; line-height: 1.5; }
+    .open-link {
+      color: #00d96c;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .open-link:hover { text-decoration: underline; }
+
+    /* Error */
+    .error-box { display: flex; flex-direction: column; gap: 10px; padding: 16px 14px; }
+    .error-msg {
+      background: #ff444420;
+      border: 1px solid #ff444430;
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: #f87171;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo-icon">
+      <svg viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M8 1L3 8h4l-1 5 6-7H8L9 1H8z" fill="#000" stroke="#000" stroke-width="0.5" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <span class="logo-text">ZapOfertas</span>
+    <span id="platform-badge"></span>
+    <span class="logo-sub">Capturar</span>
+  </div>
+
+  <!-- State: Not on a supported site -->
+  <div id="state-not-shopee" class="state">
+    <div class="centered-msg">
+      <div class="msg-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" stroke="#a1a1aa" stroke-width="2" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <p class="msg-body">Acesse uma <strong>página de produto</strong> na <strong>Shopee</strong> ou <strong>Mercado Livre</strong> e clique no ícone novamente.</p>
+    </div>
+  </div>
+
+  <!-- State: ML listing/search page detected -->
+  <div id="state-not-product" class="state">
+    <div class="centered-msg">
+      <div class="msg-icon">⚠️</div>
+      <p class="msg-title">Página de lista detectada</p>
+      <div class="instruction-box">
+        <p>Para capturar um produto:</p>
+        <ol>
+          <li><span class="step-num">1</span>Clique no produto desejado</li>
+          <li><span class="step-num">2</span>Aguarde abrir a página dele</li>
+          <li><span class="step-num">3</span>Clique em <strong>Capturar</strong> novamente</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <!-- State: Loading -->
+  <div id="state-loading" class="state">
+    <div class="loading">
+      <div class="spinner"></div>
+      <span style="color:#a1a1aa">Extraindo dados do produto...</span>
+    </div>
+  </div>
+
+  <!-- State: Product ready -->
+  <div id="state-ready" class="state">
+    <div class="product-card">
+      <img id="product-img" class="product-thumb" src="" alt=""
+        onerror="this.style.display='none';document.getElementById('product-img-placeholder').style.display='flex'" />
+      <div id="product-img-placeholder" class="product-thumb-placeholder" style="display:none">🛍</div>
+      <div class="product-info">
+        <p id="product-name" class="product-name">—</p>
+        <div class="price-row">
+          <span id="price-sale" class="price-sale">—</span>
+          <span id="price-original" class="price-original" style="display:none"></span>
+          <span id="discount-badge" class="discount-badge" style="display:none"></span>
+        </div>
+        <div id="pix-row" class="pix-row" style="display:none">
+          Pix: <span id="price-pix" class="pix-value"></span>
+        </div>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <button id="btn-send" class="btn btn-primary">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+        <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Enviar para ZapOfertas
+    </button>
+  </div>
+
+  <!-- State: Success -->
+  <div id="state-success" class="state">
+    <div class="success-box">
+      <div class="success-icon">✅</div>
+      <p class="success-title">Enviado com sucesso!</p>
+      <p class="success-sub">Abra o ZapOfertas para revisar os dados e disparar o anúncio.</p>
+      <a id="open-link" href="#" class="open-link">Abrir ZapOfertas →</a>
+    </div>
+  </div>
+
+  <!-- State: Error -->
+  <div id="state-error" class="state">
+    <div class="error-box">
+      <div class="error-msg" id="error-msg">Ocorreu um erro inesperado.</div>
+      <button id="btn-retry" class="btn btn-secondary">↩ Tentar novamente</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

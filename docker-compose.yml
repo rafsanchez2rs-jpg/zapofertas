@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: zapoferta-backend
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - JWT_SECRET=${JWT_SECRET:-change_this_in_production}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-change_refresh_in_production}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:5173}
+      - DB_PATH=/app/data/zapoferta.db
+    volumes:
+      - ./data:/app/data
+      - ./sessions:/app/data/sessions
+    shm_size: '256m'
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: zapoferta-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://backend:3001/api
+
+volumes:
+  data:
+  sessions:

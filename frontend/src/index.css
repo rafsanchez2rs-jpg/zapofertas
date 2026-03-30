@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: #0f0f0f;
+    color: #f5f5f5;
+    font-family: 'Plus Jakarta Sans', Inter, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #1a1a1a;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #3a3a3a;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #4a4a4a;
+  }
+
+  ::selection {
+    background: rgba(0, 217, 108, 0.3);
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-card border border-border rounded-xl p-4;
+  }
+
+  .btn-primary {
+    @apply bg-accent hover:bg-accent-dark text-black font-semibold px-4 py-2.5 rounded-lg
+           transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
+           flex items-center gap-2 justify-center;
+  }
+
+  .btn-secondary {
+    @apply bg-card hover:bg-border border border-border text-text-primary font-medium px-4 py-2.5 rounded-lg
+           transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
+           flex items-center gap-2 justify-center;
+  }
+
+  .btn-danger {
+    @apply bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 font-medium px-4 py-2.5 rounded-lg
+           transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
+           flex items-center gap-2 justify-center;
+  }
+
+  .input {
+    @apply bg-card border border-border rounded-lg px-3 py-2.5 text-text-primary
+           placeholder-text-secondary focus:outline-none focus:border-accent
+           transition-colors duration-200 w-full;
+  }
+
+  .label {
+    @apply text-sm font-medium text-text-secondary mb-1.5 block;
+  }
+
+  .badge {
+    @apply px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-green {
+    @apply badge bg-accent/10 text-accent border border-accent/20;
+  }
+
+  .badge-red {
+    @apply badge bg-red-500/10 text-red-400 border border-red-500/20;
+  }
+
+  .badge-yellow {
+    @apply badge bg-yellow-500/10 text-yellow-400 border border-yellow-500/20;
+  }
+
+  .badge-gray {
+    @apply badge bg-white/5 text-text-secondary border border-white/10;
+  }
+
+  .whatsapp-bubble {
+    background: #005c4b;
+    border-radius: 8px 8px 8px 2px;
+    position: relative;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #e9edef;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .whatsapp-bubble::before {
+    content: '';
+    position: absolute;
+    left: -8px;
+    top: 0;
+    border-style: solid;
+    border-width: 0 8px 8px 0;
+    border-color: transparent #005c4b transparent transparent;
+  }
+
+  .dispatch-btn-sending {
+    animation: pulse-green 1.5s ease-in-out infinite;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(135deg, #00d96c, #00b358);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glow-green {
+    box-shadow: 0 0 20px rgba(0, 217, 108, 0.3);
+  }
+}

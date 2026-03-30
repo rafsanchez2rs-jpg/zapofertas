@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \":*)",
+      "Bash(npm install:*)",
+      "Bash(curl -L -I \"https://s.shopee.com.br/70Fjk3j9GH\")",
+      "Bash(grep -E \"^Default$|^Profile\")",
+      "Bash(curl:*)",
+      "Bash(node:*)",
+      "Bash(find /d/IA/AutomaçãoAnuncios/zapOfertas -type d -not -path */node_modules* -not -path */.shopee*)",
+      "Bash(powershell -Command \"Get-Process -Name node -ErrorAction SilentlyContinue | Stop-Process -Force; Write-Host 'Processos node encerrados'\")",
+      "Bash(powershell -Command \"Get-Process -Name node -ErrorAction SilentlyContinue | Stop-Process -Force; Write-Host 'OK'\")",
+      "Bash(npx vite:*)",
+      "Bash(Get-Process -Name node)",
+      "Bash(Stop-Process -Force)",
+      "Bash(pkill -f \"node.*server\")",
+      "Bash(cmd /c \"taskkill /F /IM node.exe\")",
+      "Bash(cmd /c \"netstat -ano | findstr :3001\" 2>&1)",
+      "Bash(npm run:*)",
+      "Bash(winget upgrade:*)",
+      "Bash(/tmp/tree_structure.txt:*)",
+      "Read(//tmp/**)",
+      "Bash(sqlite3:*)",
+      "Bash(\"/d/IA/AutomaçãoAnuncios/zapOfertas/frontend/.env.production\":*)",
+      "Bash(\"/d/IA/AutomaçãoAnuncios/zapOfertas/nixpacks.toml\":*)",
+      "Bash(\"/d/IA/AutomaçãoAnuncios/zapOfertas/railway.json\":*)"
+    ]
+  }
+}

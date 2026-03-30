@@ -1,0 +1,8 @@
+2026/03/27-22:33:48.893 11c4 Reusing MANIFEST D:\IA\AutomaçãoAnuncios\zapOfertas\.shopee_profile\Default\Local Storage\leveldb/MANIFEST-000001
+2026/03/27-22:33:48.901 11c4 Recovering log #3
+2026/03/27-22:33:48.901 11c4 Level-0 table #3: started
+2026/03/27-22:33:48.915 11c4 Level-0 table #3: 52133 bytes OK
+2026/03/27-22:33:48.915 11c4 Recovering log #4
+2026/03/27-22:33:48.917 11c4 Reusing old log D:\IA\AutomaçãoAnuncios\zapOfertas\.shopee_profile\Default\Local Storage\leveldb/000004.log 
+2026/03/27-22:33:48.936 11c4 Delete type=0 #3
+2026/03/27-22:33:48.936 11c4 Delete type=2 #5
