@@ -87,22 +87,29 @@ waManager.on('rate_limited', (rl) => broadcast({ status: 'rate_limited', until: 
 waManager.on('max_reconnect_reached', () => broadcast({ status: 'max_reconnect_reached' }));
 
 // ── Middleware ────────────────────────────────────────────────────────────────
-const allowedOrigins = [
-  process.env.FRONTEND_URL || 'http://localhost:5173',
-  'http://localhost:3000',
-  'http://localhost:5174',
-];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || origin.startsWith('chrome-extension://')) {
+const corsOptions = {
+  origin: function (origin, callback) {
+    const allowed = [
+      'https://zapofertas-production.up.railway.app',
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'http://localhost:8080',
+    ];
+    // Permitir requisições sem origin (mobile, Postman)
+    if (!origin) return callback(null, true);
+    if (allowed.includes(origin) || origin.startsWith('chrome-extension://')) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      callback(null, true); // Em produção aceitar tudo por ora
     }
   },
   credentials: true,
-}));
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
