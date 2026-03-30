@@ -159,16 +159,20 @@ const PORT = process.env.PORT || 3001;
 runMigrations();
 scheduler.init();
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 ZapOfertas Backend rodando na porta ${PORT}`);
   console.log(`   API: http://localhost:${PORT}/api`);
   console.log(`   WS:  ws://localhost:${PORT}/ws/whatsapp`);
   console.log(`   Env: ${process.env.NODE_ENV || 'development'}\n`);
 
   // Inicializa WhatsApp após servidor subir (restaura sessão salva se existir)
-  waManager.initialize().catch((err) => {
-    console.error('[Server] WhatsApp init error:', err.message);
-  });
+  try {
+    waManager.initialize().catch((err) => {
+      console.error('[Server] WhatsApp init error:', err.message);
+    });
+  } catch (err) {
+    console.error('[WA] Erro:', err.message);
+  }
 
   // Health check: garante que WA reconecta se cair silenciosamente
   setInterval(() => {
