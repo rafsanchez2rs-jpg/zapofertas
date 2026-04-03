@@ -21,7 +21,7 @@ if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY && proce
 }
 
 if (!serviceAccount) {
-  const keyPath = path.resolve(__dirname, '../../serviceAccountKey.json');
+  const keyPath = path.resolve(__dirname, '../../firebase-key.json');
   if (fs.existsSync(keyPath)) {
     serviceAccount = require(keyPath);
   }
