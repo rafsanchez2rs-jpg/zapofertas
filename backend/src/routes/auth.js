@@ -31,7 +31,7 @@ router.post('/setup', async (req, res) => {
   try {
     const db = getDb();
     const count = db.prepare('SELECT COUNT(*) as n FROM users').get();
-    if (count.n > 0) {
+    if (count.\n > 0) {
       return res.status(404).json({ error: 'Setup já realizado' });
     }
 

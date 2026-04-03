@@ -1,13 +1,74 @@
 const express = require('express');
+const axios = require('axios');
+const QRCode = require('qrcode');
 const { authenticate } = require('../middleware/auth');
 const waManager = require('../services/whatsappClient');
 const { getDb } = require('../db/database');
 
 const router = express.Router();
 
+const EVO_URL  = process.env.EVOLUTION_API_URL  || 'http://localhost:8080';
+const EVO_KEY  = process.env.EVOLUTION_API_KEY  || 'zapofertas123';
+const INSTANCE = process.env.EVOLUTION_INSTANCE || 'zapofertas';
+
+const evo = axios.create({
+  baseURL: EVO_URL,
+  headers: { apikey: EVO_KEY },
+  timeout: 15000,
+});
+
 // GET /api/whatsapp/status
-router.get('/status', authenticate, (req, res) => {
-  res.json(waManager.getStatus());
+router.get('/status', authenticate, async (req, res) => {
+  try {
+    const { data } = await evo.get('/instance/fetchInstances');
+    const list = Array.isArray(data) ? data : [];
+    const inst = list.find(
+      (i) => (i.name || i.instanceName || i.instance?.instanceName) === INSTANCE
+    );
+
+    if (!inst) return res.json({ status: 'disconnected' });
+
+    const stateRes = await evo.get(`/instance/connectionState/${INSTANCE}`);
+    const state = stateRes.data?.instance?.state || 'close';
+
+    res.json({ status: state === 'open' ? 'ready' : 'disconnected' });
+  } catch {
+    res.json({ status: 'disconnected' });
+  }
+});
+
+// GET /api/whatsapp/qrcode
+router.get('/qrcode', authenticate, async (req, res) => {
+  try {
+    // Garantir que a instância existe
+    const { data: instances } = await evo.get('/instance/fetchInstances');
+    const list = Array.isArray(instances) ? instances : [];
+    const found = list.find(
+      (i) => (i.name || i.instanceName || i.instance?.instanceName) === INSTANCE
+    );
+    if (!found) {
+      await evo.post('/instance/create', {
+        instanceName: INSTANCE,
+        qrcode: true,
+        integration: 'WHATSAPP-BAILEYS',
+      });
+    }
+
+    // Buscar QR Code
+    const { data } = await evo.get(`/instance/connect/${INSTANCE}`);
+
+    if (data?.base64) {
+      return res.json({ qr: data.base64 });
+    }
+    if (data?.code) {
+      const qrBase64 = await QRCode.toDataURL(data.code);
+      return res.json({ qr: qrBase64 });
+    }
+
+    res.status(404).json({ error: 'QR Code não disponível' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // POST /api/whatsapp/connect

@@ -321,13 +321,15 @@ export default function History() {
                         <td className="px-4 py-3 text-text-secondary text-xs whitespace-nowrap">
                           {c.status === 'scheduled' && c.scheduled_at ? (
                             <span className="text-blue-400">
-                              Agendado: {new Date(c.scheduled_at).toLocaleString('pt-BR', {
+                              Agendado: {new Date(c.scheduled_at + 'Z').toLocaleString('pt-BR', {
+                                timeZone: 'America/Sao_Paulo',
                                 day: '2-digit', month: '2-digit',
                                 hour: '2-digit', minute: '2-digit',
                               })}
                             </span>
                           ) : (
-                            new Date(c.created_at).toLocaleString('pt-BR', {
+                            new Date(c.created_at + 'Z').toLocaleString('pt-BR', {
+                              timeZone: 'America/Sao_Paulo',
                               day: '2-digit', month: '2-digit',
                               hour: '2-digit', minute: '2-digit',
                             })

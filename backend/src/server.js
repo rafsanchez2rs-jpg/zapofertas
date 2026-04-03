@@ -85,7 +85,7 @@ waManager.on('ready', () => broadcast({ status: 'ready' }));
 waManager.on('auth_failure', (msg) => broadcast({ status: 'auth_failure', message: msg }));
 waManager.on('disconnected', (reason) => broadcast({ status: 'disconnected', reason }));
 waManager.on('rate_limited', (rl) => broadcast({ status: 'rate_limited', until: rl?.until }));
-waManager.on('max_reconnect_reached', () => broadcast({ status: 'max_reconnect_reached' }));
+waManager.on('max_reconnect_reached', (data) => broadcast({ status: 'max_reconnect_reached', message: data?.message }));
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors());
@@ -150,22 +150,10 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`API: http://localhost:${PORT}/api`);
   console.log(`Env: ${process.env.NODE_ENV}`);
 
-  // Inicializar WhatsApp após servidor subir
-  try {
-    waManager.initialize();
-  } catch (err) {
-    console.error('[WA] Erro ao inicializar:', err.message);
-  }
-
-  // Health check: garante que WA reconecta se cair silenciosamente
-  setInterval(() => {
-    const { status, rateLimitedUntil } = waManager.getStatus();
-    if (rateLimitedUntil) return;
-    if (status !== 'ready' && status !== 'connecting' && status !== 'qr') {
-      console.log('[Server] Health check: WA não conectado, tentando reconectar...');
-      waManager.initialize().catch(() => {});
-    }
-  }, 60000);
+  // Verificar se já há sessão ativa na Evolution API ao iniciar
+  waManager.initialize().catch((err) => {
+    console.error('[WA] Erro ao verificar sessão Evolution API:', err.message);
+  });
 });
 
 process.on('SIGTERM', () => {

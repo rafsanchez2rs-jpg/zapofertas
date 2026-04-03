@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users can read/write their own data
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && request.auth.token.email in ['pati_martel@hotmail.com', 'rafsanchez2@hotmail.com'];
+    }
+
+    // Refresh tokens - only owner can access
+    match /refreshTokens/{token} {
+      allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    // Settings - only owner can access
+    match /settings/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Collections - only owner can access
+    match /collections/{collectionId} {
+      allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    // Groups - only owner can access
+    match /groups/{groupId} {
+      allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    // Campaigns - only owner can access
+    match /campaigns/{campaignId} {
+      allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    // Campaign groups - only campaign owner can access
+    match /campaignGroups/{cgId} {
+      allow read, write: if request.auth != null &&
+        exists(/databases/$(database)/documents/campaigns/$(resource.data.campaignId)) &&
+        get(/databases/$(database)/documents/campaigns/$(resource.data.campaignId)).data.userId == request.auth.uid;
+    }
+
+    // Invites - creator can read/write, anyone can read if not used
+    match /invites/{inviteId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && resource.data.createdBy == request.auth.uid;
+      allow create: if request.auth != null;
+    }
+
+    // Admin access for specific emails
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email in ['pati_martel@hotmail.com', 'rafsanchez2@hotmail.com'];
+    }
+
+    // Allow admins to read all data
+    match /{document=**} {
+      allow read: if isAdmin();
+    }
+  }
+}

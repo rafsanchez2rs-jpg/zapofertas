@@ -2,6 +2,10 @@ const cron = require('node-cron');
 const { getDb } = require('./db/database');
 const waManager = require('./services/whatsappClient');
 
+function nowISO() {
+  return new Date().toISOString();
+}
+
 async function executeScheduledCampaign(campaign) {
   const db = getDb();
 
@@ -13,7 +17,7 @@ async function executeScheduledCampaign(campaign) {
   `).all(campaign.id);
 
   if (groups.length === 0) {
-    db.prepare("UPDATE campaigns SET status = 'sent', fired_at = datetime('now') WHERE id = ?").run(campaign.id);
+    db.prepare("UPDATE campaigns SET status = 'sent', fired_at = ? WHERE id = ?").run(nowISO(), campaign.id);
     return;
   }
 
@@ -21,11 +25,11 @@ async function executeScheduledCampaign(campaign) {
   const delayMs = Math.max(settings?.delay_between_sends || 5000, 5000);
   const imageUrl = settings?.send_image ? campaign.image_url : null;
 
-  db.prepare("UPDATE campaigns SET status = 'sending', sent_at = datetime('now'), fired_at = datetime('now') WHERE id = ?")
-    .run(campaign.id);
+  db.prepare("UPDATE campaigns SET status = 'sending', sent_at = ?, fired_at = ? WHERE id = ?")
+    .run(nowISO(), nowISO(), campaign.id);
 
   const updateGroup = db.prepare(`
-    UPDATE campaign_groups SET status = ?, sent_at = datetime('now'), error_message = ?
+    UPDATE campaign_groups SET status = ?, sent_at = ?, error_message = ?
     WHERE campaign_id = ? AND group_id = ?
   `);
 
@@ -37,15 +41,16 @@ async function executeScheduledCampaign(campaign) {
     const result = await waManager.sendMessage(g.wa_group_id, campaign.message, imageUrl);
     if (result.success) {
       successCount++;
-      updateGroup.run('sent', null, campaign.id, g.group_id);
+      updateGroup.run('sent', nowISO(), null, campaign.id, g.group_id);
       console.log(`[Scheduler] Campaign:${campaign.id} ✅ "${g.group_name}" sent`);
     } else {
       failedCount++;
-      updateGroup.run('failed', result.error || null, campaign.id, g.group_id);
+      updateGroup.run('failed', nowISO(), result.error || null, campaign.id, g.group_id);
       console.error(`[Scheduler] Campaign:${campaign.id} ❌ "${g.group_name}" failed: ${result.error}`);
     }
     if (i < groups.length - 1) {
-      await new Promise((r) => setTimeout(r, delayMs));
+      const delay = 6000 + Math.random() * 6000;
+      await new Promise((r) => setTimeout(r, delay));
     }
   }
 
@@ -57,12 +62,21 @@ async function executeScheduledCampaign(campaign) {
 function init() {
   cron.schedule('* * * * *', async () => {
     const db = getDb();
-    const now = new Date().toISOString();
+    const now = nowISO();
+
+    console.log('[Scheduler] Verificando campanhas para:', now);
 
     const campaigns = db.prepare(`
       SELECT * FROM campaigns
-      WHERE status = 'scheduled' AND scheduled_at <= ?
+      WHERE status = 'scheduled'
+        AND scheduled_at <= ?
+        AND scheduled_at >= datetime('now', '-2 minutes')
     `).all(now);
+
+    console.log('[Scheduler] Encontradas:', campaigns.length);
+    campaigns.forEach(c => {
+      console.log(`  - Campanha ${c.id}: agendada para ${c.scheduled_at}`);
+    });
 
     if (campaigns.length === 0) return;
 

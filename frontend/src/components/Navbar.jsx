@@ -46,6 +46,8 @@ export default function Navbar() {
   const statusColor =
     waStatus === 'ready'
       ? 'text-accent'
+      : waStatus === 'rate_limited'
+      ? 'text-orange-400'
       : waStatus === 'qr' || waStatus === 'authenticated' || waStatus === 'reconnecting' || waStatus === 'initializing'
       ? 'text-yellow-400'
       : 'text-red-400';
@@ -117,6 +119,8 @@ export default function Navbar() {
               ? '🟡 Conectando...'
               : waStatus === 'reconnecting'
               ? '🟡 Reconectando...'
+              : waStatus === 'rate_limited'
+              ? '🟠 Bloqueado'
               : '🔴 Desconectado'}
           </span>
         </div>

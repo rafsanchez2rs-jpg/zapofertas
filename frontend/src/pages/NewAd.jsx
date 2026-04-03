@@ -86,8 +86,10 @@ export default function NewAd() {
   const [dispatching, setDispatching] = useState(false);
   const [dispatchResult, setDispatchResult] = useState(null);
   const [scheduleOption, setScheduleOption] = useState('now');
-  const [customDate, setCustomDate] = useState('');
-  const [customTime, setCustomTime] = useState('');
+  const _agora = new Date();
+  const _proxHora = new Date(_agora); _proxHora.setHours(_proxHora.getHours() + 1, 0, 0, 0);
+  const [customDate, setCustomDate] = useState(_agora.toISOString().split('T')[0]);
+  const [customTime, setCustomTime] = useState(_proxHora.toTimeString().slice(0, 5));
 
   useEffect(() => {
     api.get('/groups').then(({ data }) => setGroups(data.groups || [])).catch(() => {});

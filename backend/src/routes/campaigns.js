@@ -5,6 +5,10 @@ const waManager = require('../services/whatsappClient');
 
 const router = express.Router();
 
+function nowISO() {
+  return new Date().toISOString();
+}
+
 async function executeCampaign(campaignId) {
   const db = getDb();
   const campaign = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(campaignId);
@@ -28,12 +32,12 @@ async function executeCampaign(campaignId) {
   const delayMs = Math.max(settings?.delay_between_sends || 5000, 5000);
   const imageUrl = settings?.send_image ? campaign.image_url : null;
 
-  db.prepare("UPDATE campaigns SET status = 'sending', sent_at = datetime('now') WHERE id = ?").run(
-    campaignId
+  db.prepare("UPDATE campaigns SET status = 'sending', sent_at = ? WHERE id = ?").run(
+    nowISO(), campaignId
   );
 
   const updateGroup = db.prepare(`
-    UPDATE campaign_groups SET status = ?, sent_at = datetime('now'), error_message = ?
+    UPDATE campaign_groups SET status = ?, sent_at = ?, error_message = ?
     WHERE campaign_id = ? AND group_id = ?
   `);
 
@@ -46,15 +50,16 @@ async function executeCampaign(campaignId) {
       const result = await waManager.sendMessage(g.wa_group_id, campaign.message, imageUrl);
       if (result.success) {
         successCount++;
-        updateGroup.run('sent', null, campaignId, g.group_id);
+        updateGroup.run('sent', nowISO(), null, campaignId, g.group_id);
         console.log(`[Campaign:${campaignId}] ✅ "${g.group_name}" enviado`);
       } else {
         failedCount++;
-        updateGroup.run('failed', result.error || null, campaignId, g.group_id);
+        updateGroup.run('failed', nowISO(), result.error || null, campaignId, g.group_id);
         console.error(`[Campaign:${campaignId}] ❌ "${g.group_name}" falhou: ${result.error}`);
       }
       if (i < groups.length - 1) {
-        await new Promise((r) => setTimeout(r, delayMs));
+        const delay = 6000 + Math.random() * 6000;
+        await new Promise((r) => setTimeout(r, delay));
       }
     }
 
@@ -308,14 +313,14 @@ router.post('/', authenticate, planLimiter, async (req, res) => {
 
     const result = db.prepare(`
       INSERT INTO campaigns (user_id, product_name, platform, original_price, sale_price, pix_price,
-        discount_percent, coupon_value, image_url, product_url, message, has_headline, headline, status, scheduled_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        discount_percent, coupon_value, image_url, product_url, message, has_headline, headline, status, scheduled_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       req.user.id, productName, platform || 'shopee',
       originalPrice || null, salePrice || null, pixPrice || null,
       discountPercent || null, couponValue || null, imageUrl || null,
       productUrl, message, hasHeadline ? 1 : 0, headline || null,
-      status, isFutureSchedule ? scheduledAt : null
+      status, isFutureSchedule ? new Date(scheduledAt).toISOString() : null, nowISO()
     );
 
     const campaignId = result.lastInsertRowid;
