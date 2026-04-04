@@ -126,6 +126,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Erro interno do servidor' });
 });
 
+// REMOVA este bloco (ou comente):
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../../frontend/dist')));
   app.get('*', (req, res) => {
@@ -134,7 +135,6 @@ if (process.env.NODE_ENV === 'production') {
     }
   });
 }
-
 app.use((req, res) => {
   res.status(404).json({ error: `Rota não encontrada: ${req.method} ${req.path}` });
 });
