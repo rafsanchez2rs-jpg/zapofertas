@@ -1,4 +1,5 @@
 const express = require('express');
+const QRCode = require('qrcode');
 const { authenticate } = require('../middleware/auth');
 const waManager = require('../services/whatsappClient');
 const { getDb } = require('../db/database');
@@ -7,15 +8,36 @@ const router = express.Router();
 
 // GET /api/whatsapp/status
 router.get('/status', authenticate, (req, res) => {
-  res.json(waManager.getStatus());
+  try {
+    const status = waManager.getStatus();
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/whatsapp/qrcode
+router.get('/qrcode', authenticate, async (req, res) => {
+  try {
+    if (!waManager.qrCode) {
+      if (waManager.status === 'disconnected') {
+        waManager.initialize().catch((err) => {
+          console.error('[WA Route] Init error:', err.message);
+        });
+      }
+      return res.status(404).json({ error: 'QR Code não disponível ainda. Aguarde.' });
+    }
+    const qrBase64 = await QRCode.toDataURL(waManager.qrCode);
+    res.json({ qr: qrBase64 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // POST /api/whatsapp/connect
-router.post('/connect', authenticate, async (req, res) => {
+router.post('/connect', authenticate, (req, res) => {
   try {
     const status = waManager.getStatus();
-
-    // Bloquear se em cooldown de rate limit
     if (status.rateLimitedUntil) {
       const remainingMs = status.rateLimitedUntil - Date.now();
       const remainingMin = Math.ceil(remainingMs / 60000);
@@ -25,8 +47,6 @@ router.post('/connect', authenticate, async (req, res) => {
         remainingMs,
       });
     }
-
-    // Non-blocking: waManager emits QR via WebSocket
     waManager.initialize().catch((err) => {
       console.error('[WA Route] Init error:', err.message);
     });
@@ -46,7 +66,7 @@ router.post('/disconnect', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/whatsapp/groups — get live groups from WhatsApp
+// GET /api/whatsapp/groups
 router.get('/groups', authenticate, async (req, res) => {
   try {
     const groups = await waManager.getGroups();
@@ -62,12 +82,10 @@ router.get('/settings', authenticate, (req, res) => {
   let settings = db
     .prepare('SELECT * FROM settings WHERE user_id = ?')
     .get(req.user.id);
-
   if (!settings) {
     db.prepare('INSERT INTO settings (user_id) VALUES (?)').run(req.user.id);
     settings = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(req.user.id);
   }
-
   res.json({ settings });
 });
 
@@ -75,7 +93,6 @@ router.get('/settings', authenticate, (req, res) => {
 router.put('/settings', authenticate, (req, res) => {
   const { delay_between_sends, send_image, auto_reconnect, coupon_default_link } = req.body;
   const db = getDb();
-
   db.prepare(`
     UPDATE settings SET
       delay_between_sends = COALESCE(?, delay_between_sends),
@@ -91,7 +108,6 @@ router.put('/settings', authenticate, (req, res) => {
     coupon_default_link !== undefined ? (coupon_default_link || null) : null,
     req.user.id
   );
-
   const settings = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(req.user.id);
   res.json({ settings });
 });
