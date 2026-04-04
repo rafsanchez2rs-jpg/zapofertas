@@ -33,6 +33,7 @@ export default function QRCodeModal({ onClose, onConnected }) {
   const [qrExpired, setQrExpired]     = useState(false);
   const pollRef    = useRef(null);
   const qrTimerRef = useRef(null);
+  const qrStartedRef = useRef(false);
 
   const qrCountdown = useCountdown(qrExpiresAt);
 
@@ -56,13 +57,17 @@ export default function QRCodeModal({ onClose, onConnected }) {
     setQrImage(null);
     setQrExpired(false);
     setQrExpiresAt(null);
+    qrStartedRef.current = false;
 
     const fetchQr = async () => {
       try {
         const { data } = await api.get('/whatsapp/qrcode');
         if (data?.qr) {
           setQrImage(data.qr);
-          if (status !== 'qr') startQrTimer();
+          if (!qrStartedRef.current) {
+  qrStartedRef.current = true;
+  startQrTimer();
+}
           setStatus('qr');
         }
       } catch {
