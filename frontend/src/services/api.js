@@ -12,6 +12,11 @@ const api = axios.create({
 
 // Request interceptor: attach token
 api.interceptors.request.use((config) => {
+  // Remove leading slash so axios doesn't treat URL as absolute path,
+  // which would strip the /api segment from baseURL.
+  if (config.url?.startsWith('/')) {
+    config.url = config.url.slice(1);
+  }
   const token = localStorage.getItem('accessToken');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
