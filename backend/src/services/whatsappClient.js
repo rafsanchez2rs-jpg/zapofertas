@@ -183,4 +183,3 @@ class WhatsAppManager extends EventEmitter {
 }
 
 module.exports = new WhatsAppManager();
-
