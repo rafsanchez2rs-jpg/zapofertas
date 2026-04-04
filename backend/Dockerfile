@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package*.json ./
 
 RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" && \
-    git config --global url."https://github.com/".insteadOf "git@github.com:"
+    git config --global --add url."https://github.com/".insteadOf "git@github.com:"
 
 RUN npm install --omit=dev --no-audit --no-fund --no-package-lock
 
