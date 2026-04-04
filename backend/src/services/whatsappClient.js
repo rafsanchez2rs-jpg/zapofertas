@@ -19,6 +19,8 @@ class WhatsAppManager extends EventEmitter {
   async initialize() {
     if (this.isInitializing) return;
     if (this.status === 'ready') return;
+    if (this.status === 'qr' && this.client) return;
+    
 
     this.isInitializing = true;
     this.status = 'connecting';
