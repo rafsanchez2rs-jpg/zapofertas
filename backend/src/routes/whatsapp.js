@@ -38,6 +38,7 @@ router.get('/qrcode', authenticate, async (req, res) => {
 router.post('/connect', authenticate, (req, res) => {
   try {
     const status = waManager.getStatus();
+
     if (status.rateLimitedUntil) {
       const remainingMs = status.rateLimitedUntil - Date.now();
       const remainingMin = Math.ceil(remainingMs / 60000);
@@ -47,6 +48,7 @@ router.post('/connect', authenticate, (req, res) => {
         remainingMs,
       });
     }
+
     waManager.initialize().catch((err) => {
       console.error('[WA Route] Init error:', err.message);
     });
@@ -82,10 +84,12 @@ router.get('/settings', authenticate, (req, res) => {
   let settings = db
     .prepare('SELECT * FROM settings WHERE user_id = ?')
     .get(req.user.id);
+
   if (!settings) {
     db.prepare('INSERT INTO settings (user_id) VALUES (?)').run(req.user.id);
     settings = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(req.user.id);
   }
+
   res.json({ settings });
 });
 
@@ -93,6 +97,7 @@ router.get('/settings', authenticate, (req, res) => {
 router.put('/settings', authenticate, (req, res) => {
   const { delay_between_sends, send_image, auto_reconnect, coupon_default_link } = req.body;
   const db = getDb();
+
   db.prepare(`
     UPDATE settings SET
       delay_between_sends = COALESCE(?, delay_between_sends),
@@ -108,6 +113,7 @@ router.put('/settings', authenticate, (req, res) => {
     coupon_default_link !== undefined ? (coupon_default_link || null) : null,
     req.user.id
   );
+
   const settings = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(req.user.id);
   res.json({ settings });
 });
