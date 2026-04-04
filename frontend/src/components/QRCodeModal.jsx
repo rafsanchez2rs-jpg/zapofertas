@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { X, RefreshCw, Wifi, WifiOff, Loader, Clock, AlertTriangle } from 'lucide-react';
 import api from '../services/api';
 
-const POLL_MS        = 3000; // intervalo de polling
-const QR_TIMEOUT_SEC = 300; // QR expira em 5 minutos
+const POLL_MS        = 3000;
+const QR_TIMEOUT_SEC = 300; // 5 minutos
 
 function useCountdown(targetMs) {
   const [remaining, setRemaining] = useState(
@@ -31,9 +31,9 @@ export default function QRCodeModal({ onClose, onConnected }) {
   const [error, setError]             = useState(null);
   const [qrExpiresAt, setQrExpiresAt] = useState(null);
   const [qrExpired, setQrExpired]     = useState(false);
-  const pollRef    = useRef(null);
-  const qrTimerRef = useRef(null);
-  const qrStartedRef = useRef(false);
+  const pollRef        = useRef(null);
+  const qrTimerRef     = useRef(null);
+  const qrStartedRef   = useRef(false);
 
   const qrCountdown = useCountdown(qrExpiresAt);
 
@@ -52,7 +52,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
   const connect = useCallback(async () => {
     stopPolling();
     setStatus('connecting');
-    setWaStatus('disconnected');
     setError(null);
     setQrImage(null);
     setQrExpired(false);
@@ -65,9 +64,9 @@ export default function QRCodeModal({ onClose, onConnected }) {
         if (data?.qr) {
           setQrImage(data.qr);
           if (!qrStartedRef.current) {
-  qrStartedRef.current = true;
-  startQrTimer();
-}
+            qrStartedRef.current = true;
+            startQrTimer();
+          }
           setStatus('qr');
         }
       } catch {
@@ -86,7 +85,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
           setTimeout(() => onClose?.(), 1500);
           return true;
         }
-        // Autenticado mas sincronizando — não exibir "QR expirado"
         if (data?.status === 'connecting') {
           setQrExpired(false);
         }
@@ -119,7 +117,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
       <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-sm animate-slide-up">
 
-        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-text-primary font-bold text-lg">Conectar WhatsApp</h2>
@@ -132,17 +129,13 @@ export default function QRCodeModal({ onClose, onConnected }) {
           </button>
         </div>
 
-        {/* Content */}
         <div className="flex flex-col items-center gap-4">
 
-          {/* Conectando */}
           {status === 'connecting' && (
             <div className="flex flex-col items-center gap-3 py-8">
               <Loader size={32} className="text-accent animate-spin" />
               <p className="text-text-secondary text-sm">
-                {waStatus === 'connecting'
-                  ? 'Autenticado! Sincronizando dados...'
-                  : 'Iniciando cliente WhatsApp...'}
+                {waStatus === 'connecting' ? 'Autenticado! Sincronizando dados...' : 'Iniciando cliente WhatsApp...'}
               </p>
               <p className="text-text-secondary text-xs text-center opacity-70">
                 Não feche esta janela durante a conexão
@@ -150,7 +143,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
             </div>
           )}
 
-          {/* QR Code */}
           {status === 'qr' && qrImage && !qrExpired && (
             <>
               <div className="relative">
@@ -159,9 +151,9 @@ export default function QRCodeModal({ onClose, onConnected }) {
                 </div>
                 {qrCountdown > 0 && (
                   <div className={`absolute -bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-semibold shadow-lg ${
-                    qrCountdown <= 30
+                    qrCountdown <= 15
                       ? 'bg-red-500 text-white'
-                      : qrCountdown <= 60
+                      : qrCountdown <= 30
                       ? 'bg-yellow-500 text-black'
                       : 'bg-card border border-border text-text-secondary'
                   }`}>
@@ -185,7 +177,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
             </>
           )}
 
-          {/* QR expirado */}
           {status === 'qr' && qrExpired && (
             <div className="flex flex-col items-center gap-4 py-6 text-center">
               <div className="w-14 h-14 bg-yellow-500/10 rounded-full flex items-center justify-center">
@@ -202,7 +193,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
             </div>
           )}
 
-          {/* Conectado */}
           {status === 'ready' && (
             <div className="flex flex-col items-center gap-3 py-6">
               <div className="w-14 h-14 bg-accent/20 rounded-full flex items-center justify-center">
@@ -212,7 +202,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
             </div>
           )}
 
-          {/* Erro */}
           {status === 'error' && (
             <div className="flex flex-col items-center gap-3 py-4 text-center">
               <WifiOff size={32} className="text-red-400" />
@@ -225,7 +214,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
           )}
         </div>
 
-        {/* Status indicator */}
         <div className="mt-5 pt-4 border-t border-border flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${
             status === 'ready'  ? 'bg-accent' :
@@ -234,11 +222,10 @@ export default function QRCodeModal({ onClose, onConnected }) {
             'bg-text-secondary animate-pulse'
           }`} />
           <span className="text-text-secondary text-xs">
-            {status === 'qr' && !qrExpired    ? 'Aguardando leitura do QR' :
-             status === 'qr' && qrExpired     ? 'QR expirado' :
-             status === 'ready'               ? 'Conectado' :
-             status === 'error'               ? 'Erro' :
-             waStatus === 'connecting'        ? 'Autenticando...' : 'Conectando'}
+            {status === 'qr' && !qrExpired ? 'Aguardando leitura do QR' :
+             status === 'qr' && qrExpired  ? 'QR expirado' :
+             status === 'ready'            ? 'Conectado' :
+             status === 'error'            ? 'Erro' : 'Conectando'}
           </span>
         </div>
       </div>
