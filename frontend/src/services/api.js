@@ -3,14 +3,13 @@ import axios from 'axios';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: `${API_URL}/api`,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Request interceptor: attach token
 api.interceptors.request.use((config) => {
   // Remove leading slash so axios doesn't treat URL as absolute path,
   // which would strip the /api segment from baseURL.
@@ -24,7 +23,6 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor: handle 401 and refresh token
 let isRefreshing = false;
 let failedQueue = [];
 
@@ -65,7 +63,7 @@ api.interceptors.response.use(
       }
 
       try {
-        const { data } = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
+        const { data } = await axios.post(`${API_URL}/api/auth/refresh`, { refreshToken });
         localStorage.setItem('accessToken', data.accessToken);
         localStorage.setItem('refreshToken', data.refreshToken);
         api.defaults.headers.common.Authorization = `Bearer ${data.accessToken}`;
