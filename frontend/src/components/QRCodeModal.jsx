@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { X, RefreshCw, Wifi, WifiOff, Loader, Clock, AlertTriangle } from 'lucide-react';
 import api from '../services/api';
 
-const QR_TIMEOUT_SEC = 60; // QR expira em 60 segundos
+const POLL_MS        = 3000; // intervalo de polling
+const QR_TIMEOUT_SEC = 300; // QR expira em 5 minutos
 
 function useCountdown(targetMs) {
   const [remaining, setRemaining] = useState(
@@ -24,109 +25,85 @@ function useCountdown(targetMs) {
 }
 
 export default function QRCodeModal({ onClose, onConnected }) {
-  const [status, setStatus]             = useState('connecting');
-  const [qrImage, setQrImage]           = useState(null);
-  const [error, setError]               = useState(null);
-  const [rateLimitedUntil, setRateLimitedUntil] = useState(null);
-  const [qrExpiresAt, setQrExpiresAt]   = useState(null);
-  const [qrExpired, setQrExpired]       = useState(false);
-  const wsRef    = useRef(null);
+  const [status, setStatus]           = useState('connecting');
+  const [waStatus, setWaStatus]       = useState('disconnected');
+  const [qrImage, setQrImage]         = useState(null);
+  const [error, setError]             = useState(null);
+  const [qrExpiresAt, setQrExpiresAt] = useState(null);
+  const [qrExpired, setQrExpired]     = useState(false);
+  const pollRef    = useRef(null);
   const qrTimerRef = useRef(null);
 
-  const rateLimitCountdown = useCountdown(rateLimitedUntil);
-  const qrCountdown        = useCountdown(qrExpiresAt);
+  const qrCountdown = useCountdown(qrExpiresAt);
 
-  // ── Iniciar QR timer quando QR aparecer ──────────────────────────────────────
+  const stopPolling = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    if (qrTimerRef.current) clearTimeout(qrTimerRef.current);
+  };
+
   const startQrTimer = useCallback(() => {
     setQrExpired(false);
     setQrExpiresAt(Date.now() + QR_TIMEOUT_SEC * 1000);
-
     if (qrTimerRef.current) clearTimeout(qrTimerRef.current);
-    qrTimerRef.current = setTimeout(() => {
-      setQrExpired(true);
-    }, QR_TIMEOUT_SEC * 1000);
+    qrTimerRef.current = setTimeout(() => setQrExpired(true), QR_TIMEOUT_SEC * 1000);
   }, []);
 
-  // ── Conectar ao backend + WebSocket ─────────────────────────────────────────
   const connect = useCallback(async () => {
+    stopPolling();
     setStatus('connecting');
+    setWaStatus('disconnected');
     setError(null);
     setQrImage(null);
     setQrExpired(false);
     setQrExpiresAt(null);
-    setRateLimitedUntil(null);
 
-    if (qrTimerRef.current) clearTimeout(qrTimerRef.current);
-
-    try {
-      await api.post('/whatsapp/connect');
-    } catch (err) {
-      const data = err.response?.data;
-      if (err.response?.status === 429 && data?.rateLimitedUntil) {
-        setRateLimitedUntil(data.rateLimitedUntil);
-        setStatus('rate_limited');
-      } else {
-        setError(data?.error || 'Erro ao iniciar conexão');
-        setStatus('error');
-      }
-      return;
-    }
-
-    // WebSocket para receber QR em tempo real
-    const token = localStorage.getItem('accessToken');
-    const WS_URL = import.meta.env.VITE_API_URL
-      ? import.meta.env.VITE_API_URL.replace('https://', 'wss://').replace('http://', 'ws://')
-      : 'ws://localhost:3001';
-    const wsUrl = `${WS_URL}/ws/whatsapp?token=${token}`;
-
-    if (wsRef.current) wsRef.current.close();
-
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onmessage = (event) => {
+    const fetchQr = async () => {
       try {
-        const data = JSON.parse(event.data);
-
-        if (data.status === 'qr' && data.qr) {
+        const { data } = await api.get('/whatsapp/qrcode');
+        if (data?.qr) {
           setQrImage(data.qr);
+          if (status !== 'qr') startQrTimer();
           setStatus('qr');
-          startQrTimer();
-        } else if (data.status === 'ready') {
-          if (qrTimerRef.current) clearTimeout(qrTimerRef.current);
-          setQrImage(null);
+        }
+      } catch {
+        // ignora — tenta no próximo ciclo
+      }
+    };
+
+    const checkStatus = async () => {
+      try {
+        const { data } = await api.get('/whatsapp/status');
+        setWaStatus(data?.status || 'disconnected');
+        if (data?.status === 'ready') {
+          stopPolling();
           setStatus('ready');
           onConnected?.();
           setTimeout(() => onClose?.(), 1500);
-        } else if (data.status === 'authenticated') {
-          setStatus('authenticated');
-        } else if (data.status === 'rate_limited') {
-          if (qrTimerRef.current) clearTimeout(qrTimerRef.current);
-          setRateLimitedUntil(data.until);
-          setStatus('rate_limited');
-        } else if (data.status === 'auth_failure') {
-          if (qrTimerRef.current) clearTimeout(qrTimerRef.current);
-          setError('Falha na autenticação. Tente novamente.');
-          setStatus('error');
+          return true;
         }
-      } catch { /* ignore */ }
+        // Autenticado mas sincronizando — não exibir "QR expirado"
+        if (data?.status === 'connecting') {
+          setQrExpired(false);
+        }
+      } catch {
+        // ignora
+      }
+      return false;
     };
 
-    ws.onerror = () => {
-      setError('Erro na conexão WebSocket');
-      setStatus('error');
-    };
-  }, [onClose, onConnected, startQrTimer]);
+    await fetchQr();
+
+    pollRef.current = setInterval(async () => {
+      const connected = await checkStatus();
+      if (!connected) await fetchQr();
+    }, POLL_MS);
+  }, [onClose, onConnected, startQrTimer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     connect();
-    return () => {
-      wsRef.current?.close();
-      if (qrTimerRef.current) clearTimeout(qrTimerRef.current);
-    };
+    return stopPolling;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Formato de tempo legível ──────────────────────────────────────────────
   const formatCountdown = (secs) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
@@ -157,7 +134,11 @@ export default function QRCodeModal({ onClose, onConnected }) {
           {status === 'connecting' && (
             <div className="flex flex-col items-center gap-3 py-8">
               <Loader size={32} className="text-accent animate-spin" />
-              <p className="text-text-secondary text-sm">Iniciando cliente WhatsApp...</p>
+              <p className="text-text-secondary text-sm">
+                {waStatus === 'connecting'
+                  ? 'Autenticado! Sincronizando dados...'
+                  : 'Iniciando cliente WhatsApp...'}
+              </p>
               <p className="text-text-secondary text-xs text-center opacity-70">
                 Não feche esta janela durante a conexão
               </p>
@@ -171,12 +152,11 @@ export default function QRCodeModal({ onClose, onConnected }) {
                 <div className="p-3 bg-white rounded-xl">
                   <img src={qrImage} alt="QR Code WhatsApp" className="w-52 h-52" />
                 </div>
-                {/* Countdown overlay */}
                 {qrCountdown > 0 && (
                   <div className={`absolute -bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-semibold shadow-lg ${
-                    qrCountdown <= 15
+                    qrCountdown <= 30
                       ? 'bg-red-500 text-white'
-                      : qrCountdown <= 30
+                      : qrCountdown <= 60
                       ? 'bg-yellow-500 text-black'
                       : 'bg-card border border-border text-text-secondary'
                   }`}>
@@ -217,14 +197,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
             </div>
           )}
 
-          {/* Autenticando */}
-          {(status === 'authenticated') && (
-            <div className="flex flex-col items-center gap-3 py-6">
-              <Loader size={32} className="text-yellow-400 animate-spin" />
-              <p className="text-yellow-400 text-sm font-medium">Autenticando...</p>
-            </div>
-          )}
-
           {/* Conectado */}
           {status === 'ready' && (
             <div className="flex flex-col items-center gap-3 py-6">
@@ -235,35 +207,7 @@ export default function QRCodeModal({ onClose, onConnected }) {
             </div>
           )}
 
-          {/* Rate limited */}
-          {status === 'rate_limited' && (
-            <div className="flex flex-col items-center gap-4 py-4 text-center">
-              <div className="w-14 h-14 bg-red-500/10 rounded-full flex items-center justify-center">
-                <AlertTriangle size={28} className="text-red-400" />
-              </div>
-              <div>
-                <p className="text-red-400 text-sm font-semibold">WhatsApp bloqueou temporariamente</p>
-                <p className="text-text-secondary text-xs mt-1">
-                  Muitas tentativas de conexão em pouco tempo.<br />Aguarde para tentar novamente.
-                </p>
-              </div>
-              {rateLimitCountdown > 0 ? (
-                <div className="w-full bg-red-500/10 border border-red-500/20 rounded-xl py-4">
-                  <p className="text-text-secondary text-xs mb-1">Libera em</p>
-                  <p className="text-red-400 text-2xl font-mono font-bold">
-                    {formatCountdown(rateLimitCountdown)}
-                  </p>
-                </div>
-              ) : (
-                <button onClick={connect} className="btn-primary text-sm gap-2">
-                  <RefreshCw size={14} />
-                  Tentar novamente
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Erro genérico */}
+          {/* Erro */}
           {status === 'error' && (
             <div className="flex flex-col items-center gap-3 py-4 text-center">
               <WifiOff size={32} className="text-red-400" />
@@ -279,19 +223,17 @@ export default function QRCodeModal({ onClose, onConnected }) {
         {/* Status indicator */}
         <div className="mt-5 pt-4 border-t border-border flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${
-            status === 'ready'        ? 'bg-accent' :
-            status === 'qr' || status === 'authenticated' ? 'bg-yellow-400' :
-            status === 'rate_limited' ? 'bg-red-400' :
-            status === 'error'        ? 'bg-red-400' :
+            status === 'ready'  ? 'bg-accent' :
+            status === 'qr'     ? 'bg-yellow-400' :
+            status === 'error'  ? 'bg-red-400' :
             'bg-text-secondary animate-pulse'
           }`} />
           <span className="text-text-secondary text-xs">
-            {status === 'qr' && !qrExpired ? 'Aguardando leitura do QR' :
-             status === 'qr' && qrExpired  ? 'QR expirado' :
-             status === 'ready'            ? 'Conectado' :
-             status === 'authenticated'    ? 'Autenticando' :
-             status === 'rate_limited'     ? 'Bloqueado temporariamente' :
-             status === 'error'            ? 'Erro' : 'Conectando'}
+            {status === 'qr' && !qrExpired    ? 'Aguardando leitura do QR' :
+             status === 'qr' && qrExpired     ? 'QR expirado' :
+             status === 'ready'               ? 'Conectado' :
+             status === 'error'               ? 'Erro' :
+             waStatus === 'connecting'        ? 'Autenticando...' : 'Conectando'}
           </span>
         </div>
       </div>
