@@ -117,6 +117,15 @@ app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
+// Aliases sem /api para compatibilidade com o frontend
+app.use('/auth', authLimiter, authRoutes);
+app.use('/products', productsRoutes);
+app.use('/groups', groupsRoutes);
+app.use('/campaigns', campaignsRoutes);
+app.use('/whatsapp', whatsappRoutes);
+app.use('/admin', adminRoutes);
+app.use('/dashboard', dashboardRoutes);
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '1.0.0' });
 });
