@@ -1,364 +1,174 @@
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
-const path = require('path');
-const fs = require('fs');
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const EventEmitter = require('events');
+const path = require('path');
 
-// ── File logger ───────────────────────────────────────────────────────────────
-const LOG_DIR = path.join(__dirname, '../../logs');
-const LOG_FILE = path.join(LOG_DIR, 'whatsapp.log');
-if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+const SESSION_DIR = path.join(__dirname, '../../data/sessions');
 
-function logToFile(level, message) {
-  const line = `[${new Date().toISOString()}] [${level}] ${message}\n`;
-  try { fs.appendFileSync(LOG_FILE, line); } catch { /* ignore */ }
-}
-function log(msg)   { console.log(msg);   logToFile('INFO',  msg); }
-function warn(msg)  { console.warn(msg);  logToFile('WARN',  msg); }
-function error(msg) { console.error(msg); logToFile('ERROR', msg); }
-
-// ── Rate-limit error file ─────────────────────────────────────────────────────
-const AUTH_DIR  = path.join(__dirname, '../../.wwebjs_auth');
-const ERR_FILE  = path.join(AUTH_DIR, 'last_error.json');
-const RATE_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutos
-
-function saveErrorState(type) {
-  try {
-    if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
-    fs.writeFileSync(ERR_FILE, JSON.stringify({ at: Date.now(), type }));
-  } catch { /* ignore */ }
-}
-
-function readErrorState() {
-  try {
-    if (!fs.existsSync(ERR_FILE)) return null;
-    return JSON.parse(fs.readFileSync(ERR_FILE, 'utf8'));
-  } catch { return null; }
-}
-
-function clearErrorState() {
-  try { if (fs.existsSync(ERR_FILE)) fs.unlinkSync(ERR_FILE); } catch { /* ignore */ }
-}
-
-/** Retorna { until, remainingMs } se ainda dentro do cooldown, ou null. */
-function getRateLimitStatus() {
-  const err = readErrorState();
-  if (!err || err.type !== 'rate_limit') return null;
-  const until = err.at + RATE_COOLDOWN_MS;
-  if (Date.now() >= until) return null;
-  return { until, remainingMs: until - Date.now() };
-}
-
-function looksLikeRateLimit(msg = '') {
-  return /rate.?limit|429|too many|muitas requisi|flood/i.test(msg);
-}
-
-// ── Delays progressivos para reconexão (máx 3 tentativas) ────────────────────
-const RECONNECT_DELAYS = [30000, 60000, 120000]; // 30s, 1min, 2min
-const MAX_RECONNECT = 3;
-
-// ── WhatsAppManager ───────────────────────────────────────────────────────────
 class WhatsAppManager extends EventEmitter {
   constructor() {
     super();
-    this.client        = null;
-    this.status        = 'disconnected';
-    this.qrCode        = null;
-    this.reconnectTimer = null;
+    this.status           = 'disconnected';
+    this.qrCode           = null;
+    this.phone            = null;
+    this.connectedSince   = null;
     this.reconnectAttempts = 0;
-    this.isInitializing = false;
-    this.keepAliveTimer = null;
-    this.connectedSince = null;
+    this.isInitializing   = false;
+    this.client           = null;
   }
 
-  // ── Inicializar cliente ──────────────────────────────────────────────────────
   async initialize() {
     if (this.isInitializing) return;
-    if (this.status === 'qr'    && this.client) return;
     if (this.status === 'ready') return;
-
-    // Bloquear se em cooldown de rate limit
-    const rl = getRateLimitStatus();
-    if (rl) {
-      const mins = Math.ceil(rl.remainingMs / 60000);
-      warn(`[WA] Rate limit ativo — aguardar ${mins} min antes de reconectar`);
-      this.status = 'disconnected';
-      this.emit('rate_limited', rl);
-      return;
-    }
 
     this.isInitializing = true;
     this.status = 'connecting';
-    this._stopKeepAlive();
-
-    if (this.client) {
-      try { await this.client.destroy(); } catch { /* ignore */ }
-      this.client = null;
-    }
-
-    const puppeteerConfig = {
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-accelerated-2d-canvas',
-        '--disable-webgl',
-      ],
-      timeout: 60000,
-    };
-
-    if (process.env.NODE_ENV === 'production') {
-      puppeteerConfig.executablePath = '/usr/bin/chromium';
-    }
 
     this.client = new Client({
-      authStrategy: new LocalAuth({
-        dataPath: path.join(__dirname, '../../.wwebjs_auth'),
-      }),
-      puppeteer: puppeteerConfig,
+      authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
+      puppeteer: {
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process',
+          '--disable-gpu',
+        ],
+      },
     });
 
     this.client.on('qr', (qr) => {
-      this.qrCode = qr;
-      this.status = 'qr';
-      this.isInitializing = false;
+      this.qrCode  = qr;
+      this.status  = 'qr';
       this.emit('qr', qr);
-      log('[WA] QR Code gerado');
-    });
-
-    this.client.on('ready', () => {
-      this.status         = 'ready';
-      this.qrCode         = null;
-      this.reconnectAttempts = 0;
-      this.isInitializing = false;
-      this.connectedSince = new Date().toISOString();
-      clearErrorState(); // limpar qualquer erro anterior
-      if (this.reconnectTimer) {
-        clearTimeout(this.reconnectTimer);
-        this.reconnectTimer = null;
-      }
-      this._startKeepAlive();
-      this.emit('ready');
-      log(`[WA] Conectado! Número: ${this.client.info?.wid?.user}`);
+      console.log('[WA] QR Code gerado — aguardando escaneamento...');
     });
 
     this.client.on('authenticated', () => {
+      this.status = 'connecting';
       this.emit('authenticated');
-      log('[WA] Autenticado');
+      console.log('[WA] Autenticado');
+    });
+
+    this.client.on('ready', async () => {
+      this.status         = 'ready';
+      this.qrCode         = null;
+      this.connectedSince = new Date().toISOString();
+      this.reconnectAttempts = 0;
+      try {
+        const info = this.client.info;
+        this.phone = info?.wid?.user || null;
+      } catch { /* não crítico */ }
+      this.emit('ready');
+      console.log(`[WA] Conectado! Número: ${this.phone}`);
     });
 
     this.client.on('auth_failure', (msg) => {
-      const msgStr = String(msg || '');
-      error(`[WA] Falha de autenticação: ${msgStr}`);
-      this.status         = 'disconnected';
-      this.isInitializing = false;
-      this._stopKeepAlive();
-
-      if (looksLikeRateLimit(msgStr)) {
-        warn('[WA] Rate limit detectado em auth_failure');
-        saveErrorState('rate_limit');
-        const rl = getRateLimitStatus();
-        this.emit('rate_limited', rl);
-      } else {
-        this.emit('auth_failure', msg);
-      }
+      this.status = 'disconnected';
+      this.emit('auth_failure', msg);
+      console.error('[WA] Falha de autenticação:', msg);
     });
 
-    this.client.on('disconnected', (reason) => {
-      const reasonStr = String(reason || '');
-      warn(`[WA] Desconectado: ${reasonStr}`);
+    this.client.on('disconnected', async (reason) => {
       this.status         = 'disconnected';
-      this.isInitializing = false;
+      this.qrCode         = null;
       this.connectedSince = null;
-      this._stopKeepAlive();
+      this.phone          = null;
       this.emit('disconnected', reason);
+      console.warn('[WA] Desconectado:', reason);
 
-      if (reasonStr === 'LOGOUT') {
-        // Desconexão manual — não reconectar
-        return;
+      if (this.reconnectAttempts < 5) {
+        this.reconnectAttempts++;
+        console.log(`[WA] Reconectando (tentativa ${this.reconnectAttempts}/5)...`);
+        setTimeout(() => {
+          this.isInitializing = false;
+          this.client = null;
+          this.initialize();
+        }, 10000);
+      } else {
+        this.emit('max_reconnect_reached', { message: 'Máximo de tentativas de reconexão atingido' });
       }
-
-      if (looksLikeRateLimit(reasonStr)) {
-        warn('[WA] Rate limit detectado em disconnected');
-        saveErrorState('rate_limit');
-        const rl = getRateLimitStatus();
-        this.emit('rate_limited', rl);
-        return;
-      }
-
-      this.scheduleReconnect();
     });
 
     try {
       await this.client.initialize();
     } catch (err) {
-      const msgStr = err.message || '';
-      error(`[WA] Erro ao inicializar: ${msgStr}`);
-      this.status         = 'disconnected';
-      this.isInitializing = false;
-      this._stopKeepAlive();
-
-      if (looksLikeRateLimit(msgStr)) {
-        saveErrorState('rate_limit');
-        const rl = getRateLimitStatus();
-        this.emit('rate_limited', rl);
-      } else {
-        this.scheduleReconnect();
-      }
-    }
-  }
-
-  // ── Keep-alive ───────────────────────────────────────────────────────────────
-  _startKeepAlive() {
-    this._stopKeepAlive();
-    this.keepAliveTimer = setInterval(async () => {
-      if (this.status !== 'ready') return;
-      try {
-        await this.client.getState();
-      } catch (e) {
-        warn('[WA] Keep-alive falhou, agendando reconexão...');
-        logToFile('WARN', `Keep-alive error: ${e.message}`);
-        this._stopKeepAlive();
-        if (this.status === 'ready') {
-          this.status = 'disconnected';
-          this.scheduleReconnect();
-        }
-      }
-    }, 30000);
-  }
-
-  _stopKeepAlive() {
-    if (this.keepAliveTimer) {
-      clearInterval(this.keepAliveTimer);
-      this.keepAliveTimer = null;
-    }
-  }
-
-  // ── Reconexão progressiva (máx 3 tentativas) ─────────────────────────────────
-  scheduleReconnect() {
-    if (this.reconnectTimer) return;
-
-    // Verificar rate limit antes de agendar
-    const rl = getRateLimitStatus();
-    if (rl) {
-      warn(`[WA] Rate limit ativo — não agendando reconexão automática`);
-      this.emit('rate_limited', rl);
-      return;
+      console.error('[WA] Erro ao inicializar cliente:', err.message);
+      this.status = 'disconnected';
+      this.emit('disconnected', 'init_error');
     }
 
-    if (this.reconnectAttempts >= MAX_RECONNECT) {
-      warn('[WA] Máximo de tentativas atingido — reconexão manual necessária');
-      this.emit('max_reconnect_reached');
-      return;
-    }
-
-    const delay = RECONNECT_DELAYS[this.reconnectAttempts] ?? RECONNECT_DELAYS[RECONNECT_DELAYS.length - 1];
-    this.reconnectAttempts++;
-    log(`[WA] Reconectando em ${delay / 1000}s (tentativa ${this.reconnectAttempts}/${MAX_RECONNECT})`);
-
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.initialize();
-    }, delay);
+    this.isInitializing = false;
   }
 
-  // ── Envio de mensagem ────────────────────────────────────────────────────────
   async sendMessage(chatId, text, imageUrl = null) {
-    if (this.status !== 'ready' || !this.client || !this.client.info) {
+    if (this.status !== 'ready') {
       throw new Error('WhatsApp não está conectado');
     }
-
     try {
       if (imageUrl) {
-        let media = null;
+        const { MessageMedia } = require('whatsapp-web.js');
         try {
-          media = await MessageMedia.fromUrl(imageUrl, {
-            unsafeMime: true,
-            reqOptions: { timeout: 10000 },
-          });
-        } catch {
-          log('[WA] Não carregou imagem, enviando só texto');
-        }
-        if (media) {
+          const media = await MessageMedia.fromUrl(imageUrl, { unsafeMime: true });
           await this.client.sendMessage(chatId, media, { caption: text });
-        } else {
+        } catch {
           await this.client.sendMessage(chatId, text);
         }
       } else {
         await this.client.sendMessage(chatId, text);
       }
-
-      // Pausa pós-envio para reduzir pressão no protocolo
       await new Promise((r) => setTimeout(r, 2000));
       return { success: true };
-
     } catch (err) {
-      const msg = err.message || '';
-      error(`[WA] Erro ao enviar para ${chatId}: ${msg}`);
-
-      if (
-        msg.includes('Protocol error') ||
-        msg.includes('Session closed') ||
-        msg.includes('Target closed') ||
-        msg.includes('browser has disconnected')
-      ) {
-        warn('[WA] Erro de protocolo — agendando reconexão');
-        this._stopKeepAlive();
-        if (this.status === 'ready') {
-          this.status = 'disconnected';
-          this.scheduleReconnect();
-        }
-        return { success: false, error: `Erro de protocolo: ${msg}` };
-      }
-
-      return { success: false, error: msg };
+      console.error(`[WA] Erro ao enviar para ${chatId}:`, err.message);
+      return { success: false, error: err.message };
     }
   }
 
-  // ── Grupos ───────────────────────────────────────────────────────────────────
   async getGroups() {
     if (this.status !== 'ready') throw new Error('WhatsApp não está conectado');
     try {
       const chats = await this.client.getChats();
       return chats
         .filter((c) => c.isGroup)
-        .map((c) => ({
-          id: c.id._serialized,
-          name: c.name,
-          participants: c.participants?.length || 0,
+        .map((g) => ({
+          id:           g.id._serialized,
+          name:         g.name || 'Sem nome',
+          participants: g.participants?.length || 0,
         }));
     } catch (err) {
-      error(`[WA] Erro ao buscar grupos: ${err.message}`);
+      console.error('[WA] Erro ao buscar grupos:', err.message);
       throw err;
     }
   }
 
-  // ── Status público ────────────────────────────────────────────────────────────
   getStatus() {
-    const rl = getRateLimitStatus();
     return {
-      status: this.status,
-      phone: this.client?.info?.wid?.user || null,
+      status:           this.status,
+      phone:            this.phone,
       reconnectAttempts: this.reconnectAttempts,
-      connectedSince: this.connectedSince || null,
-      rateLimitedUntil: rl ? rl.until : null,
+      connectedSince:   this.connectedSince,
+      rateLimitedUntil: null,
     };
   }
 
-  // ── Logout ────────────────────────────────────────────────────────────────────
   async logout() {
-    this._stopKeepAlive();
-    try { await this.client?.logout(); } catch { /* ignore */ }
-    this.status = 'disconnected';
+    try {
+      if (this.client) await this.client.logout();
+    } catch { /* ignore */ }
+    this.status         = 'disconnected';
     this.connectedSince = null;
+    this.phone          = null;
+    this.qrCode         = null;
     this.reconnectAttempts = 0;
-    clearErrorState();
+    this.client         = null;
+    this.isInitializing = false;
     this.emit('disconnected', 'LOGOUT');
   }
 }
 
 module.exports = new WhatsAppManager();
+
