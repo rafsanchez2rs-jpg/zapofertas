@@ -51,7 +51,6 @@ if (!window.__zapOfertasLoaded) {
 
   // ── EXTRATOR MERCADO LIVRE ──────────────────────────────────────────────────
   function extractML() {
-    // Nome
     const productName =
       document.querySelector('h1.ui-pdp-title')?.textContent?.trim() ||
       document.querySelector('h1')?.textContent?.trim() ||
@@ -59,7 +58,6 @@ if (!window.__zapOfertasLoaded) {
         ?.replace(/\s*\|\s*MercadoLivre.*$/i, '').replace(/\s*-\s*Mercado Livre.*$/i, '').trim() ||
       null;
 
-    // Preço atual — tentativa 1: seletores excluindo original
     let salePrice = null;
     const priceContainers = [
       '.ui-pdp-price__second-line .andes-money-amount',
@@ -72,8 +70,6 @@ if (!window.__zapOfertasLoaded) {
         if (v && v > 1 && v < 100000) { salePrice = v; break; }
       } catch { /* ignore */ }
     }
-
-    // Tentativa 2: meta tag
     if (!salePrice) {
       const metaPrice =
         document.querySelector('meta[itemprop="price"]') ||
@@ -83,8 +79,6 @@ if (!window.__zapOfertasLoaded) {
         if (!isNaN(v) && v > 1) salePrice = v;
       }
     }
-
-    // Tentativa 3: maior font-size entre todos .andes-money-amount
     if (!salePrice) {
       let maxFontSize = 0;
       document.querySelectorAll('.andes-money-amount').forEach(el => {
@@ -100,9 +94,7 @@ if (!window.__zapOfertasLoaded) {
       });
     }
 
-    // Preço original (riscado)
     const getMLOriginalPrice = () => {
-      // Tentativa 1: seletores específicos do ML
       const selectors = [
         '.ui-pdp-price__original-value .andes-money-amount__fraction',
         '[class*="price-original"] .andes-money-amount__fraction',
@@ -120,7 +112,6 @@ if (!window.__zapOfertasLoaded) {
           if (price > 0) return price;
         }
       }
-      // Tentativa 2: qualquer .andes-money-amount com linha riscada
       for (const el of document.querySelectorAll('.andes-money-amount')) {
         const style    = window.getComputedStyle(el);
         const hasStrike =
@@ -139,7 +130,6 @@ if (!window.__zapOfertasLoaded) {
           }
         }
       }
-      // Tentativa 3: meta tag
       const metaOriginal = document.querySelector(
         'meta[property="product:original_price:amount"]'
       );
@@ -147,15 +137,12 @@ if (!window.__zapOfertasLoaded) {
       return null;
     };
     let originalPrice = getMLOriginalPrice();
-    console.log('[ZapOfertas ML] originalPrice:', originalPrice);
 
-    // Validação cruzada
     if (originalPrice && salePrice && originalPrice < salePrice) {
       [originalPrice, salePrice] = [salePrice, originalPrice];
     }
     if (originalPrice === salePrice) originalPrice = null;
 
-    // Desconto
     let discountPercent = 0;
     const discountEl = document.querySelector(
       '.ui-pdp-price__discount, [class*="discount-label"], .andes-tag__label'
@@ -168,13 +155,11 @@ if (!window.__zapOfertasLoaded) {
       discountPercent = Math.round((1 - salePrice / originalPrice) * 100);
     }
 
-    // Imagem
     const imageUrl =
       document.querySelector('meta[property="og:image"]')?.content ||
       document.querySelector('.ui-pdp-gallery__figure img')?.src ||
       document.querySelector('figure img')?.src || null;
 
-    // Cupom
     let couponValue = null;
     let couponType  = 'fixed';
     const couponEl  = document.querySelector(
@@ -204,7 +189,6 @@ if (!window.__zapOfertasLoaded) {
 
   // ── EXTRATOR SHOPEE ─────────────────────────────────────────────────────────
   function extractShopee() {
-    // Nome
     let productName = null;
     const h1 = document.querySelector('h1');
     if (h1 && h1.textContent.trim().length > 5) {
@@ -218,14 +202,12 @@ if (!window.__zapOfertasLoaded) {
       }
     }
 
-    // Imagem
     const imageUrl =
       document.querySelector('meta[property="og:image"]')?.content ||
       [...document.querySelectorAll('img')]
         .filter(img => img.naturalWidth > 200 && img.src.startsWith('https'))
         .sort((a, b) => b.naturalWidth - a.naturalWidth)[0]?.src || null;
 
-    // Preço atual
     let salePrice = null;
     const metaPrice = document.querySelector('meta[property="product:price:amount"]');
     if (metaPrice?.content) {
@@ -270,7 +252,6 @@ if (!window.__zapOfertasLoaded) {
       }
     }
 
-    // Preço original
     let originalPrice = null;
     document.querySelectorAll('*').forEach(el => {
       if (originalPrice || isInShippingSection(el)) return;
@@ -284,7 +265,6 @@ if (!window.__zapOfertasLoaded) {
       }
     });
 
-    // Desconto
     let discountPercent = null;
     const discountEl = document.querySelector(
       '[class*="discount-rate"],[class*="discount_rate"],[class*="percent-off"],[class*="off-tag"]'
@@ -305,18 +285,32 @@ if (!window.__zapOfertasLoaded) {
       }
     }
 
-    // Pix
+    // Pix — busca padrão "R$X,XX no Pix" ou "Pix R$X,XX" no texto da página
     let pixPrice = null;
-    document.querySelectorAll('*').forEach(el => {
-      if (pixPrice || el.children.length > 3 || isInShippingSection(el)) return;
-      const txt = el.innerText || '';
-      if (/pix/i.test(txt) && /R\$/.test(txt)) {
-        const v = cleanPrice(txt);
-        if (v && v !== salePrice && v > 1) pixPrice = v;
-      }
-    });
+    const pageText = document.body.innerText || '';
+    const pixMatch =
+      pageText.match(/R\$\s*([\d.]+,\d{2})\s+no\s+pix/i) ||
+      pageText.match(/pix[^R\n]{0,15}R\$\s*([\d.]+,\d{2})/i) ||
+      pageText.match(/R\$\s*([\d.]+,\d{2})[^\n]{0,15}pix/i);
+    if (pixMatch) {
+      const v = cleanPrice(pixMatch[1]);
+      if (v && v > 1 && v < 50000) pixPrice = v;
+    }
+    // Fallback: elemento pequeno que contenha Pix + R$
+    if (!pixPrice) {
+      document.querySelectorAll('*').forEach(el => {
+        if (pixPrice || el.children.length > 1 || isInShippingSection(el)) return;
+        const txt = (el.innerText || '').trim();
+        if (txt.length > 50) return;
+        if (!/pix/i.test(txt)) return;
+        const m = txt.match(/R\$\s*([\d.]+,\d{2})/);
+        if (m) {
+          const v = cleanPrice(m[1]);
+          if (v && v > 1 && v < 50000) pixPrice = v;
+        }
+      });
+    }
 
-    // Cupom
     let couponValue = null;
     let couponType  = 'fixed';
     const couponEls = document.querySelectorAll(
@@ -355,7 +349,6 @@ if (!window.__zapOfertasLoaded) {
     try {
       if (_platform === 'mercadolivre') {
         const data = extractML();
-        // Só sinaliza "não é produto" se não encontrou absolutamente nada
         if (!data.salePrice && !data.productName) {
           return { success: false, code: 'NOT_PRODUCT_PAGE' };
         }
