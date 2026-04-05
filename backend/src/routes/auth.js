@@ -8,9 +8,9 @@ const router = express.Router();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'dev_refresh_secret';
-const ACCESS_EXPIRES = '1h';
-const REFRESH_EXPIRES = '7d';
-const REFRESH_EXPIRES_MS = 7 * 24 * 60 * 60 * 1000;
+const ACCESS_EXPIRES = '30d';
+const REFRESH_EXPIRES = '90d';
+const REFRESH_EXPIRES_MS = 90 * 24 * 60 * 60 * 1000;
 
 function generateTokens(userId) {
   const accessToken = jwt.sign({ userId }, JWT_SECRET, { expiresIn: ACCESS_EXPIRES });
