@@ -111,7 +111,9 @@ function generateAd(productData, userId = 'default') {
   if (originalPrice && originalPrice > 0 && originalPrice > salePrice) {
     lines.push(`De❌ ${formatPrice(originalPrice)}`);
   }
-  lines.push(`Por 🔥 ${formatPrice(salePrice)}`);
+  // Se pixPrice == salePrice, o preço já é o preço PIX — exibe o label "NO PIX" na linha Por
+  const isPIXPrice = pixPrice && pixPrice > 0 && Math.abs(pixPrice - salePrice) < 0.01;
+  lines.push(`Por 🔥 ${formatPrice(salePrice)}${isPIXPrice ? ' NO PIX' : ''}`);
   if (pixPrice && pixPrice > 0 && pixPrice < salePrice) {
     lines.push(`No Pix 💰 ${formatPrice(pixPrice)}`);
   }
