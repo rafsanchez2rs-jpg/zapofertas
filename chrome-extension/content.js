@@ -102,7 +102,6 @@ if (!window.__zapOfertasLoaded) {
 
     // Preço original (riscado)
     const getMLOriginalPrice = () => {
-      // Tentativa 1: seletores específicos do ML
       const selectors = [
         '.ui-pdp-price__original-value .andes-money-amount__fraction',
         '[class*="price-original"] .andes-money-amount__fraction',
@@ -120,7 +119,6 @@ if (!window.__zapOfertasLoaded) {
           if (price > 0) return price;
         }
       }
-      // Tentativa 2: qualquer .andes-money-amount com linha riscada
       for (const el of document.querySelectorAll('.andes-money-amount')) {
         const style    = window.getComputedStyle(el);
         const hasStrike =
@@ -139,7 +137,6 @@ if (!window.__zapOfertasLoaded) {
           }
         }
       }
-      // Tentativa 3: meta tag
       const metaOriginal = document.querySelector(
         'meta[property="product:original_price:amount"]'
       );
@@ -323,12 +320,29 @@ if (!window.__zapOfertasLoaded) {
         const txt = (el.innerText || '').trim();
         if (txt.length > 50) return;
         if (!/pix/i.test(txt)) return;
-        const m = txt.match(/R\$\s*([\d.,]+)/);
+        const m = txt.match(/R\$\s*([\d.]+,\d{2})/);
         if (m) {
           const v = cleanPrice(m[1]);
           if (v && v > 1 && v < 50000) pixPrice = v;
         }
       });
+    }
+
+    // Se há preço PIX sem originalPrice, busca "outros métodos de pagamento" como preço "de"
+    if (pixPrice && !originalPrice) {
+      const otherMatch =
+        pageText.match(/ou\s+R\$\s*([\d.]+,\d{2})\s+com\s+outros/i) ||
+        pageText.match(/R\$\s*([\d.]+,\d{2})\s+com\s+outros\s+m[eé]todos/i) ||
+        pageText.match(/outros\s+m[eé]todos[^\n]{0,30}R\$\s*([\d.]+,\d{2})/i);
+      if (otherMatch) {
+        const v = cleanPrice(otherMatch[1]);
+        if (v && v > pixPrice) {
+          originalPrice = parseFloat(v.toFixed(2));
+          if (!discountPercent && salePrice) {
+            discountPercent = Math.round((1 - salePrice / originalPrice) * 100);
+          }
+        }
+      }
     }
 
     // Cupom
@@ -370,7 +384,6 @@ if (!window.__zapOfertasLoaded) {
     try {
       if (_platform === 'mercadolivre') {
         const data = extractML();
-        // Só sinaliza "não é produto" se não encontrou absolutamente nada
         if (!data.salePrice && !data.productName) {
           return { success: false, code: 'NOT_PRODUCT_PAGE' };
         }
