@@ -34,8 +34,8 @@ router.get('/wa-sync', authenticate, async (req, res) => {
 
     // Upsert each group
     const upsert = db.prepare(`
-      INSERT INTO groups (user_id, wa_group_id, name, participant_count)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO groups (user_id, wa_group_id, name, participant_count, active)
+      VALUES (?, ?, ?, ?, 0)
       ON CONFLICT(user_id, wa_group_id) DO UPDATE SET
         name = excluded.name,
         participant_count = excluded.participant_count,
