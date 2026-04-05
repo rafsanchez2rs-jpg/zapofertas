@@ -30,6 +30,7 @@ class WhatsAppManager extends EventEmitter {
         fs.mkdirSync(SESSION_DIR, { recursive: true });
       }
 
+      // Baileys é ESM — usamos import() dinâmico
       const {
         default: makeWASocket,
         useMultiFileAuthState,
@@ -123,7 +124,19 @@ class WhatsAppManager extends EventEmitter {
     try {
       if (imageUrl) {
         try {
-          await this.sock.sendMessage(chatId, { image: { url: imageUrl }, caption: text });
+          // Baixa a imagem como buffer para garantir preview inline no WhatsApp
+          const response = await fetch(imageUrl);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const arrayBuffer = await response.arrayBuffer();
+          const imageBuffer = Buffer.from(arrayBuffer);
+          const contentType = response.headers.get('content-type') || '';
+          const mimetype = contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/jpeg';
+
+          await this.sock.sendMessage(chatId, {
+            image: imageBuffer,
+            caption: text,
+            mimetype,
+          });
         } catch {
           await this.sock.sendMessage(chatId, { text });
         }
