@@ -5,6 +5,10 @@ const waManager = require('../services/whatsappClient');
 
 const router = express.Router();
 
+function nowISO() {
+  return new Date().toISOString();
+}
+
 async function executeCampaign(campaignId) {
   const db = getDb();
   const campaign = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(campaignId);
@@ -28,12 +32,12 @@ async function executeCampaign(campaignId) {
   const delayMs = Math.max(settings?.delay_between_sends || 5000, 5000);
   const imageUrl = settings?.send_image ? campaign.image_url : null;
 
-  db.prepare("UPDATE campaigns SET status = 'sending', sent_at = datetime('now') WHERE id = ?").run(
-    campaignId
+  db.prepare("UPDATE campaigns SET status = 'sending', sent_at = ? WHERE id = ?").run(
+    nowISO(), campaignId
   );
 
   const updateGroup = db.prepare(`
-    UPDATE campaign_groups SET status = ?, sent_at = datetime('now'), error_message = ?
+    UPDATE campaign_groups SET status = ?, sent_at = ?, error_message = ?
     WHERE campaign_id = ? AND group_id = ?
   `);
 
@@ -46,15 +50,16 @@ async function executeCampaign(campaignId) {
       const result = await waManager.sendMessage(g.wa_group_id, campaign.message, imageUrl);
       if (result.success) {
         successCount++;
-        updateGroup.run('sent', null, campaignId, g.group_id);
+        updateGroup.run('sent', nowISO(), null, campaignId, g.group_id);
         console.log(`[Campaign:${campaignId}] ✅ "${g.group_name}" enviado`);
       } else {
         failedCount++;
-        updateGroup.run('failed', result.error || null, campaignId, g.group_id);
+        updateGroup.run('failed', nowISO(), result.error || null, campaignId, g.group_id);
         console.error(`[Campaign:${campaignId}] ❌ "${g.group_name}" falhou: ${result.error}`);
       }
       if (i < groups.length - 1) {
-        await new Promise((r) => setTimeout(r, delayMs));
+        const delay = 6000 + Math.random() * 6000;
+        await new Promise((r) => setTimeout(r, delay));
       }
     }
 
@@ -104,7 +109,8 @@ router.get('/stats', authenticate, (req, res) => {
   const userId = req.user.id;
 
   // Subquery de reset: apenas campanhas após o último reset do dashboard
-  const resetFilter = `AND created_at > (SELECT COALESCE(reset_at, '2000-01-01') FROM dashboard_reset WHERE user_id = ?)`;
+  // Usa COALESCE fora do SELECT para lidar com ausência de linha (sem reset feito)
+  const resetFilter = `AND created_at > COALESCE((SELECT reset_at FROM dashboard_reset WHERE user_id = ?), '2000-01-01')`;
 
   const today = db.prepare(`
     SELECT COUNT(*) as count FROM campaigns
@@ -308,92 +314,17 @@ router.post('/', authenticate, planLimiter, async (req, res) => {
 
     const result = db.prepare(`
       INSERT INTO campaigns (user_id, product_name, platform, original_price, sale_price, pix_price,
-        discount_percent, coupon_value, image_url, product_url, message, has_headline, headline, status, scheduled_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        discount_percent, coupon_value, image_url, product_url, message, has_headline, headline, status, scheduled_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       req.user.id, productName, platform || 'shopee',
       originalPrice || null, salePrice || null, pixPrice || null,
       discountPercent || null, couponValue || null, imageUrl || null,
       productUrl, message, hasHeadline ? 1 : 0, headline || null,
-      status, isFutureSchedule ? scheduledAt : null
+      status, isFutureSchedule ? new Date(scheduledAt).toISOString() : null, nowISO()
     );
 
     const campaignId = result.lastInsertRowid;
 
     const insertGroup = db.prepare(`
-      INSERT INTO campaign_groups (campaign_id, group_id, wa_group_id, group_name, status)
-      VALUES (?, ?, ?, ?, 'pending')
-    `);
-    const insertGroups = db.transaction(() => {
-      for (const g of groups) {
-        insertGroup.run(campaignId, g.id, g.wa_group_id, g.name);
-      }
-    });
-    insertGroups();
-
-    // Atualiza contador diário apenas para disparos imediatos
-    if (!isFutureSchedule) {
-      db.prepare(`
-        UPDATE users SET
-          daily_sends = CASE WHEN last_send_date = date('now') THEN daily_sends + 1 ELSE 1 END,
-          last_send_date = date('now')
-        WHERE id = ?
-      `).run(req.user.id);
-    }
-
-    if (isFutureSchedule) {
-      console.log(`[Campaigns] Campanha ${campaignId} agendada para ${scheduledAt}`);
-      return res.status(201).json({ campaignId, status: 'scheduled', scheduledAt });
-    }
-
-    // Disparo imediato
-    res.status(201).json({ campaignId, status: 'dispatching' });
-    executeCampaign(campaignId).catch(err => {
-      console.error(`[Campaigns] Execute error for ${campaignId}:`, err);
-    });
-  } catch (err) {
-    console.error('[Campaigns] Create error:', err);
-    res.status(500).json({ error: err.message || 'Erro ao criar campanha' });
-  }
-});
-
-// PATCH /api/campaigns/:id/cancel
-router.patch('/:id/cancel', authenticate, (req, res) => {
-  const db = getDb();
-  const campaign = db
-    .prepare('SELECT * FROM campaigns WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.user.id);
-
-  if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
-  if (campaign.status !== 'scheduled') {
-    return res.status(400).json({ error: 'Apenas campanhas agendadas podem ser canceladas' });
-  }
-
-  db.prepare("UPDATE campaigns SET status = 'cancelled' WHERE id = ?").run(req.params.id);
-  res.json({ message: 'Agendamento cancelado' });
-});
-
-// POST /api/campaigns/:id/resend
-router.post('/:id/resend', authenticate, planLimiter, async (req, res) => {
-  const db = getDb();
-  const campaign = db
-    .prepare('SELECT * FROM campaigns WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.user.id);
-
-  if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
-
-  db.prepare(`
-    UPDATE campaign_groups SET status = 'pending', sent_at = NULL, error_message = NULL
-    WHERE campaign_id = ? AND status = 'failed'
-  `).run(req.params.id);
-
-  db.prepare("UPDATE campaigns SET status = 'pending' WHERE id = ?").run(req.params.id);
-
-  res.json({ message: 'Reenvio iniciado', campaignId: campaign.id });
-
-  executeCampaign(campaign.id).catch(err => {
-    console.error(`[Campaigns] Resend error for ${campaign.id}:`, err);
-  });
-});
-
-module.exports = router;
+      INSERT INTO campaign_groups (campaign_id, group_id, wa_
