@@ -1,6 +1,5 @@
 const HEADLINES = [
-const HEADLINES = [
-    '🚨 ATENÇÃO GRUPO! 🚨',
+  '🚨 ATENÇÃO GRUPO! 🚨',
   '😱 VOCÊ NÃO VAI ACREDITAR NO PREÇO DISSO!',
   '🔥 ÚLTIMA CHANCE HOJE! 🔥',
   '⏰ ACABA EM ALGUMAS HORAS!',
@@ -20,7 +19,6 @@ const HEADLINES = [
   '🛍️ ACHADINHOS DO DIA NA SHOPEE',
   '😱 PREÇO QUE TÁ DANDO VERGONHA DE TÃO BARATO!',
   '✅ OFERTA EXCLUSIVA SHOPEE',
-];
 ];
 
 // Anti-repetição: não sortear a mesma headline duas vezes seguidas
