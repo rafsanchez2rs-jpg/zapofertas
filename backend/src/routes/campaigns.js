@@ -326,5 +326,101 @@ router.post('/', authenticate, planLimiter, async (req, res) => {
 
     const campaignId = result.lastInsertRowid;
 
-    const insertGroup = db.prepare(`
-      INSERT INTO campaign_groups (campaign_id, group_id, wa_
+      const insertGroup = db.prepare(`
+      INSERT INTO campaign_groups (campaign_id, group_id, wa_group_id, group_name, status)
+      VALUES (?, ?, ?, ?, 'pending')
+    `);
+    const insertGroups = db.transaction(() => {
+      for (const g of groups) {
+        insertGroup.run(campaignId, g.id, g.wa_group_id, g.name);
+      }
+    });
+    insertGroups();
+
+    // Atualiza contador diário apenas para disparos imediatos
+    if (!isFutureSchedule) {
+      db.prepare(`
+        UPDATE users SET
+          daily_sends = CASE WHEN last_send_date = date('now') THEN daily_sends + 1 ELSE 1 END,
+          last_send_date = date('now')
+        WHERE id = ?
+      `).run(req.user.id);
+    }
+
+    if (isFutureSchedule) {
+      console.log(`[Campaigns] Campanha ${campaignId} agendada para ${scheduledAt}`);
+      return res.status(201).json({ campaignId, status: 'scheduled', scheduledAt });
+    }
+
+    // Disparo imediato
+    res.status(201).json({ campaignId, status: 'dispatching' });
+    executeCampaign(campaignId).catch(err => {
+      console.error(`[Campaigns] Execute error for ${campaignId}:`, err);
+    });
+  } catch (err) {
+    console.error('[Campaigns] Create error:', err);
+    res.status(500).json({ error: err.message || 'Erro ao criar campanha' });
+  }
+});
+
+// PATCH /api/campaigns/:id/cancel
+router.patch('/:id/cancel', authenticate, (req, res) => {
+  const db = getDb();
+  const campaign = db
+    .prepare('SELECT * FROM campaigns WHERE id = ? AND user_id = ?')
+    .get(req.params.id, req.user.id);
+
+  if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
+  if (campaign.status !== 'scheduled') {
+    return res.status(400).json({ error: 'Apenas campanhas agendadas podem ser canceladas' });
+  }
+
+  db.prepare("UPDATE campaigns SET status = 'cancelled' WHERE id = ?").run(req.params.id);
+  res.json({ message: 'Agendamento cancelado' });
+});
+
+// POST /api/campaigns/:id/resend
+router.post('/:id/resend', authenticate, planLimiter, async (req, res) => {
+  const db = getDb();
+  const campaign = db
+    .prepare('SELECT * FROM campaigns WHERE id = ? AND user_id = ?')
+    .get(req.params.id, req.user.id);
+
+  if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
+
+  db.prepare(`
+    UPDATE campaign_groups SET status = 'pending', sent_at = NULL, error_message = NULL
+    WHERE campaign_id = ? AND status = 'failed'
+  `).run(req.params.id);
+
+  db.prepare("UPDATE campaigns SET status = 'pending' WHERE id = ?").run(req.params.id);
+
+  res.json({ message: 'Reenvio iniciado', campaignId: campaign.id });
+
+  executeCampaign(campaign.id).catch(err => {
+    console.error(`[Campaigns] Resend error for ${campaign.id}:`, err);
+  });
+});
+
+// PATCH /api/campaigns/:id/reschedule — reagendar campanha agendada
+router.patch('/:id/reschedule', authenticate, (req, res) => {
+  try {
+    const db = getDb();
+    const campaign = db
+      .prepare('SELECT * FROM campaigns WHERE id = ? AND user_id = ?')
+      .get(req.params.id, req.user.id);
+
+    if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
+    if (campaign.status !== 'scheduled') return res.status(400).json({ error: 'Apenas campanhas agendadas podem ser reagendadas' });
+
+    const { scheduled_at } = req.body;
+    if (!scheduled_at) return res.status(400).json({ error: 'Nova data/hora obrigatória' });
+
+    db.prepare('UPDATE campaigns SET scheduled_at = ? WHERE id = ?').run(scheduled_at, req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;
