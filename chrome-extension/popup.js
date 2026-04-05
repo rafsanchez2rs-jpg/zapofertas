@@ -88,6 +88,10 @@ function fillProduct(data) {
     img.src = data.imageUrl;
     img.style.display = 'block';
     if (placeholder) placeholder.style.display = 'none';
+    img.onerror = () => {
+      img.style.display = 'none';
+      if (placeholder) placeholder.style.display = 'flex';
+    };
   } else {
     img.style.display = 'none';
     if (placeholder) placeholder.style.display = 'flex';
@@ -179,7 +183,7 @@ async function sendToBackend() {
     showState('success');
   } catch (err) {
     if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-      showError('Não foi possível conectar ao ZapOfertas. Verifique se o sistema está online.');
+      showError('ZapOfertas não está rodando. Inicie o sistema com "npm run dev" primeiro.');
     } else {
       showError(`Erro ao enviar: ${err.message}`);
     }
