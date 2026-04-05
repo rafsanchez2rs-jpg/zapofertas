@@ -8,7 +8,7 @@
     "https://*.shopee.com.br/*",
     "https://*.mercadolivre.com.br/*",
     "https://*.mercadolibre.com/*",
-    "http://localhost:3001/*"
+    "https://zapofertas-backend.onrender.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
