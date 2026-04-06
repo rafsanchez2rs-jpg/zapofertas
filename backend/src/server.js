@@ -126,14 +126,19 @@ app.use('/whatsapp', whatsappRoutes);
 app.use('/admin', adminRoutes);
 app.use('/dashboard', dashboardRoutes);
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '1.0.0' });
-});
+if (process.env.NODE_ENV === 'production') {
+  const frontendDist  = path.join(__dirname, '../../frontend/dist');
+  const frontendIndex = path.join(frontendDist, 'index.html');
+  if (require('fs').existsSync(frontendIndex)) {
+    app.use(express.static(frontendDist));
+    app.get('*', (req, res) => {
+      if (!req.path.startsWith('/api') && !req.path.startsWith('/ws')) {
+        res.sendFile(frontendIndex);
+      }
+    });
+  }
+}
 
-app.use((err, req, res, next) => {
-  console.error('[Server] Unhandled error:', err);
-  res.status(500).json({ error: 'Erro interno do servidor' });
-});
 
 // REMOVA este bloco (ou comente):
 if (process.env.NODE_ENV === 'production') {
