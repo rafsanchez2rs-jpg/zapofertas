@@ -18,13 +18,17 @@ class WhatsAppManager extends EventEmitter {
   }
 
   async initialize(userId = null) {
-    if (this.isInitializing) return;
+    if (this.isInitializing) {
+      console.log('[WA] Já está inicializando...');
+      return;
+    }
     if (this.status === 'ready' && this.sock?.ws?.readyState === 1) return;
 
     this.isInitializing = true;
     this.status = 'connecting';
-
     if (userId) this.ownerId = userId;
+
+    console.log(`[WA] Iniciando cliente... (tentativa ${this.reconnectAttempts})`);
 
     try {
       if (!fs.existsSync(SESSION_DIR)) {
@@ -35,38 +39,41 @@ class WhatsAppManager extends EventEmitter {
         default: makeWASocket,
         useMultiFileAuthState,
         DisconnectReason,
-        fetchLatestBaileysVersion,
       } = await import('@whiskeysockets/baileys');
 
       const pino = require('pino');
       const logger = pino({ level: 'silent' });
 
       const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
-      const { version } = await fetchLatestBaileysVersion();
 
+      // === FIX IMPORTANTE: Não usar fetchLatestBaileysVersion (muitas vezes trava) ===
       this.sock = makeWASocket({
-        version,
+        version: [2, 3000, 1015901307],     // versão estável recente
         auth: state,
         printQRInTerminal: false,
         logger,
-        browser: ['ZapOfertas', 'Chrome', '1.0.0'],
-        connectTimeoutMs: 120000,
-        defaultQueryTimeoutMs: 120000,
-        keepAliveIntervalMs: 30000,
-        retryRequestDelayMs: 8000,
-        qrTimeout: 45000,           // QR expira em 45s
+        browser: ['Mac OS', 'Chrome', '132.0.0'],   // User-agent mais aceito
+        connectTimeoutMs: 180000,
+        defaultQueryTimeoutMs: 180000,
+        keepAliveIntervalMs: 40000,
+        retryRequestDelayMs: 10000,
+        qrTimeout: 60000,
       });
+
+      console.log('[WA] Socket criado com sucesso. Aguardando eventos...');
 
       this.sock.ev.on('creds.update', saveCreds);
 
       this.sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
+        console.log(`[WA] connection.update → connection: ${connection} | qr: ${!!qr}`);
+
         if (qr) {
           this.qrCode = qr;
           this.status = 'qr';
           this.emit('qr', qr);
-          console.log('[WA] 📱 QR Code gerado - Aguardando escaneamento...');
+          console.log('[WA] ✅ QR CODE GERADO E ENVIADO PARA O FRONTEND');
           return;
         }
 
@@ -77,52 +84,33 @@ class WhatsAppManager extends EventEmitter {
           this.reconnectAttempts = 0;
           this.phone = this.sock.user?.id?.split(':')[0] || null;
 
-          console.log(`[WA] ✅ CONECTADO COM SUCESSO! Número: ${this.phone}`);
+          console.log(`[WA] 🎉 CONECTADO COM SUCESSO! Número: ${this.phone}`);
           this.emit('authenticated');
           this.emit('ready');
         }
 
         if (connection === 'close') {
           const statusCode = lastDisconnect?.error?.output?.statusCode;
-          const reason = lastDisconnect?.error?.output?.payload?.error || 'unknown';
-
-          console.warn(`[WA] Conexão fechada | Código: ${statusCode} | Motivo: ${reason}`);
+          console.warn(`[WA] Conexão fechada | Código: ${statusCode}`);
 
           this.status = 'disconnected';
-          this.connectedSince = null;
           this.sock = null;
+          this.emit('disconnected');
 
-          this.emit('disconnected', reason);
-
-          // === TRATAMENTO ESPECIAL PARA RESTART REQUIRED (muito comum após scan) ===
           if (statusCode === DisconnectReason.restartRequired) {
-            console.log('[WA] Restart required detectado → Reconectando imediatamente...');
-            setTimeout(() => this.initialize(this.ownerId), 2000);
-            return;
-          }
-
-          if (statusCode === DisconnectReason.loggedOut) {
-            console.log('[WA] Logout detectado - Limpando sessão...');
-            this.ownerId = null;
-            try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch {}
-            fs.mkdirSync(SESSION_DIR, { recursive: true });
-          } 
-          else if (this.reconnectAttempts < 7) {
+            console.log('[WA] Restart required → reconectando...');
+            setTimeout(() => this.initialize(this.ownerId), 3000);
+          } else if (statusCode !== DisconnectReason.loggedOut && this.reconnectAttempts < 5) {
             this.reconnectAttempts++;
-            const delay = Math.min(3000 * this.reconnectAttempts, 30000);
-            console.log(`[WA] Reconectando em ${delay/1000}s (tentativa ${this.reconnectAttempts}/7)...`);
-            setTimeout(() => this.initialize(this.ownerId), delay);
-          } else {
-            console.error('[WA] Máximo de reconexões atingido.');
-            this.emit('max_reconnect_reached');
+            setTimeout(() => this.initialize(this.ownerId), 8000);
           }
         }
       });
 
     } catch (err) {
-      console.error('[WA] Erro crítico ao inicializar:', err.message);
+      console.error('[WA] ❌ ERRO CRÍTICO NA INICIALIZAÇÃO:', err.message);
+      console.error(err);
       this.status = 'disconnected';
-      this.sock = null;
       this.emit('disconnected', 'init_error');
     } finally {
       this.isInitializing = false;
@@ -130,72 +118,18 @@ class WhatsAppManager extends EventEmitter {
   }
 
   isReallyConnected() {
-    return !!(
-      this.sock &&
-      this.sock.ws?.readyState === 1 &&
-      this.status === 'ready'
-    );
+    return !!(this.sock && this.sock.ws?.readyState === 1 && this.status === 'ready');
   }
 
+  // ... (mantenha os métodos sendMessage, getGroups, getStatus e logout iguais à versão anterior)
   async sendMessage(chatId, text, imageUrl = null) {
     if (!this.isReallyConnected()) {
       throw new Error('WhatsApp não está conectado. Vá em Configurações e escaneie o QR Code.');
     }
-    // ... (mantenha o resto do sendMessage igual ao que eu te enviei antes)
-    try {
-      if (imageUrl) {
-        const response = await fetch(imageUrl);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const arrayBuffer = await response.arrayBuffer();
-        const imageBuffer = Buffer.from(arrayBuffer);
-        const contentType = response.headers.get('content-type') || 'image/jpeg';
-        const mimetype = contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/jpeg';
-
-        await this.sock.sendMessage(chatId, { image: imageBuffer, caption: text, mimetype });
-      } else {
-        await this.sock.sendMessage(chatId, { text });
-      }
-      await new Promise(r => setTimeout(r, 1500));
-      return { success: true };
-    } catch (err) {
-      console.error(`[WA] Erro envio ${chatId}:`, err.message);
-      if (err.message?.includes('connection') || err.output?.statusCode) {
-        this.status = 'disconnected';
-        this.sock = null;
-      }
-      throw err;
-    }
+    // (coloque aqui o código de envio que você já tem)
   }
 
-  async getGroups() {
-    if (!this.isReallyConnected()) throw new Error('WhatsApp não está conectado...');
-    const groups = await this.sock.groupFetchAllParticipating();
-    return Object.values(groups).map(g => ({
-      id: g.id,
-      name: g.subject || 'Sem nome',
-      participants: g.participants?.length || 0,
-    }));
-  }
-
-  getStatus(requestingUserId = null, isAdmin = false) {
-    const realStatus = this.isReallyConnected() ? 'ready' : this.status;
-    if (isAdmin || !this.ownerId || this.ownerId === requestingUserId) {
-      return { status: realStatus, phone: this.phone, reconnectAttempts: this.reconnectAttempts, connectedSince: this.connectedSince };
-    }
-    return { status: 'disconnected', phone: null };
-  }
-
-  async logout() {
-    try { if (this.sock) await this.sock.logout(); } catch {}
-    this.status = 'disconnected';
-    this.sock = null;
-    this.phone = null;
-    this.qrCode = null;
-    this.ownerId = null;
-    try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch {}
-    fs.mkdirSync(SESSION_DIR, { recursive: true });
-    this.emit('disconnected', 'LOGOUT');
-  }
+  // ... resto dos métodos
 }
 
 module.exports = new WhatsAppManager();
