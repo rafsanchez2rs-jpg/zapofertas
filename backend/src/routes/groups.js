@@ -7,7 +7,8 @@ const router = express.Router();
 
 // GET /api/groups/wa-status — lightweight WhatsApp connection status for polling
 router.get('/wa-status', authenticate, (req, res) => {
-  res.json(waManager.getStatus());
+  const isAdmin = req.user.role === 'admin';
+  res.json(waManager.getStatus(req.user.id, isAdmin));
 });
 
 // GET /api/groups — list saved groups
