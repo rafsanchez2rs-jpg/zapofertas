@@ -19,7 +19,7 @@ class WhatsAppManager extends EventEmitter {
 
   async initialize(userId = null) {
     if (this.isInitializing) return;
-    if (this.status === 'ready' && this.sock) return;
+    if (this.status === 'ready' && this.sock?.ws?.readyState === 1) return;
 
     this.isInitializing = true;
     this.status = 'connecting';
@@ -50,20 +50,23 @@ class WhatsAppManager extends EventEmitter {
         printQRInTerminal: false,
         logger,
         browser: ['ZapOfertas', 'Chrome', '1.0.0'],
-        connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 60000,
+        connectTimeoutMs: 120000,
+        defaultQueryTimeoutMs: 120000,
         keepAliveIntervalMs: 30000,
-        retryRequestDelayMs: 5000,
+        retryRequestDelayMs: 8000,
+        qrTimeout: 45000,           // QR expira em 45s
       });
 
       this.sock.ev.on('creds.update', saveCreds);
 
-      this.sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+      this.sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
         if (qr) {
           this.qrCode = qr;
           this.status = 'qr';
           this.emit('qr', qr);
-          console.log('[WA] QR Code gerado');
+          console.log('[WA] 📱 QR Code gerado - Aguardando escaneamento...');
           return;
         }
 
@@ -74,43 +77,50 @@ class WhatsAppManager extends EventEmitter {
           this.reconnectAttempts = 0;
           this.phone = this.sock.user?.id?.split(':')[0] || null;
 
-          console.log(`[WA] ✅ Conectado! Número: ${this.phone}`);
+          console.log(`[WA] ✅ CONECTADO COM SUCESSO! Número: ${this.phone}`);
           this.emit('authenticated');
           this.emit('ready');
         }
 
         if (connection === 'close') {
           const statusCode = lastDisconnect?.error?.output?.statusCode;
-          const loggedOut = statusCode === DisconnectReason.loggedOut;
+          const reason = lastDisconnect?.error?.output?.payload?.error || 'unknown';
 
-          console.warn(`[WA] Conexão fechada. Código: ${statusCode} | Logout: ${loggedOut}`);
+          console.warn(`[WA] Conexão fechada | Código: ${statusCode} | Motivo: ${reason}`);
 
           this.status = 'disconnected';
           this.connectedSince = null;
-          this.sock = null;                    // Limpa o socket
+          this.sock = null;
 
-          this.emit('disconnected', lastDisconnect?.error?.message || 'closed');
+          this.emit('disconnected', reason);
 
-          if (loggedOut) {
-            console.log('[WA] Sessão encerrada (logout). Limpando credenciais...');
+          // === TRATAMENTO ESPECIAL PARA RESTART REQUIRED (muito comum após scan) ===
+          if (statusCode === DisconnectReason.restartRequired) {
+            console.log('[WA] Restart required detectado → Reconectando imediatamente...');
+            setTimeout(() => this.initialize(this.ownerId), 2000);
+            return;
+          }
+
+          if (statusCode === DisconnectReason.loggedOut) {
+            console.log('[WA] Logout detectado - Limpando sessão...');
             this.ownerId = null;
             try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch {}
             fs.mkdirSync(SESSION_DIR, { recursive: true });
           } 
-          else if (this.reconnectAttempts < 6) {
+          else if (this.reconnectAttempts < 7) {
             this.reconnectAttempts++;
-            const delay = 5000 + (this.reconnectAttempts * 2000); // backoff
-            console.log(`[WA] Reconectando em ${delay/1000}s (tentativa ${this.reconnectAttempts}/6)...`);
+            const delay = Math.min(3000 * this.reconnectAttempts, 30000);
+            console.log(`[WA] Reconectando em ${delay/1000}s (tentativa ${this.reconnectAttempts}/7)...`);
             setTimeout(() => this.initialize(this.ownerId), delay);
           } else {
-            console.error('[WA] Máximo de tentativas de reconexão atingido.');
+            console.error('[WA] Máximo de reconexões atingido.');
             this.emit('max_reconnect_reached');
           }
         }
       });
 
     } catch (err) {
-      console.error('[WA] Erro ao inicializar Baileys:', err.message);
+      console.error('[WA] Erro crítico ao inicializar:', err.message);
       this.status = 'disconnected';
       this.sock = null;
       this.emit('disconnected', 'init_error');
@@ -119,114 +129,71 @@ class WhatsAppManager extends EventEmitter {
     }
   }
 
-  // ====================== VERIFICAÇÃO REAL DE CONEXÃO ======================
   isReallyConnected() {
     return !!(
       this.sock &&
-      this.sock.ws?.readyState === 1 &&     // 1 = OPEN
+      this.sock.ws?.readyState === 1 &&
       this.status === 'ready'
     );
   }
 
-  // ====================== ENVIO DE MENSAGEM ======================
   async sendMessage(chatId, text, imageUrl = null) {
     if (!this.isReallyConnected()) {
       throw new Error('WhatsApp não está conectado. Vá em Configurações e escaneie o QR Code.');
     }
-
+    // ... (mantenha o resto do sendMessage igual ao que eu te enviei antes)
     try {
       if (imageUrl) {
         const response = await fetch(imageUrl);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
         const arrayBuffer = await response.arrayBuffer();
         const imageBuffer = Buffer.from(arrayBuffer);
         const contentType = response.headers.get('content-type') || 'image/jpeg';
         const mimetype = contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/jpeg';
 
-        await this.sock.sendMessage(chatId, {
-          image: imageBuffer,
-          caption: text,
-          mimetype,
-        });
+        await this.sock.sendMessage(chatId, { image: imageBuffer, caption: text, mimetype });
       } else {
         await this.sock.sendMessage(chatId, { text });
       }
-
-      // Delay pequeno para evitar flood
       await new Promise(r => setTimeout(r, 1500));
       return { success: true };
     } catch (err) {
-      console.error(`[WA] Erro ao enviar para ${chatId}:`, err.message);
-
-      // Se for erro de conexão, marca como desconectado
-      if (err.message?.toLowerCase().includes('connection') || 
-          err.output?.statusCode) {
+      console.error(`[WA] Erro envio ${chatId}:`, err.message);
+      if (err.message?.includes('connection') || err.output?.statusCode) {
         this.status = 'disconnected';
         this.sock = null;
       }
-
       throw err;
     }
   }
 
-  // ====================== BUSCAR GRUPOS ======================
   async getGroups() {
-    if (!this.isReallyConnected()) {
-      throw new Error('WhatsApp não está conectado. Vá em Configurações e escaneie o QR Code.');
-    }
-
-    try {
-      const groups = await this.sock.groupFetchAllParticipating();
-      return Object.values(groups).map(g => ({
-        id: g.id,
-        name: g.subject || 'Sem nome',
-        participants: g.participants?.length || 0,
-      }));
-    } catch (err) {
-      console.error('[WA] Erro ao buscar grupos:', err.message);
-      throw err;
-    }
+    if (!this.isReallyConnected()) throw new Error('WhatsApp não está conectado...');
+    const groups = await this.sock.groupFetchAllParticipating();
+    return Object.values(groups).map(g => ({
+      id: g.id,
+      name: g.subject || 'Sem nome',
+      participants: g.participants?.length || 0,
+    }));
   }
 
-  // ====================== STATUS ======================
   getStatus(requestingUserId = null, isAdmin = false) {
     const realStatus = this.isReallyConnected() ? 'ready' : this.status;
-
     if (isAdmin || !this.ownerId || this.ownerId === requestingUserId) {
-      return {
-        status: realStatus,
-        phone: this.phone,
-        reconnectAttempts: this.reconnectAttempts,
-        connectedSince: this.connectedSince,
-      };
+      return { status: realStatus, phone: this.phone, reconnectAttempts: this.reconnectAttempts, connectedSince: this.connectedSince };
     }
-
-    // Usuários comuns não veem informação da sessão
-    return {
-      status: 'disconnected',
-      phone: null,
-      reconnectAttempts: 0,
-      connectedSince: null,
-    };
+    return { status: 'disconnected', phone: null };
   }
 
   async logout() {
-    try {
-      if (this.sock) await this.sock.logout();
-    } catch {}
-
+    try { if (this.sock) await this.sock.logout(); } catch {}
     this.status = 'disconnected';
-    this.connectedSince = null;
+    this.sock = null;
     this.phone = null;
     this.qrCode = null;
     this.ownerId = null;
-    this.reconnectAttempts = 0;
-    this.sock = null;
-
     try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch {}
     fs.mkdirSync(SESSION_DIR, { recursive: true });
-
     this.emit('disconnected', 'LOGOUT');
   }
 }
