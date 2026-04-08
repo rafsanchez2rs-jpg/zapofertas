@@ -8,7 +8,7 @@ function getDb() {
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: {
-        rejectUnauthorized: false, // necessário no Render
+        rejectUnauthorized: false,
       },
     });
   }
