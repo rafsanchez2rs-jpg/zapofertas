@@ -14,10 +14,9 @@ class WhatsAppManager extends EventEmitter {
     this.reconnectAttempts = 0;
     this.isInitializing    = false;
     this.sock              = null;
-    this.ownerId           = null; // userId dono da sessão atual
   }
 
-  async initialize(userId = null) {
+  async initialize() {
     if (this.isInitializing) return;
     if (this.status === 'ready') return;
     if (this.status === 'qr' && this.sock) return;
@@ -25,14 +24,12 @@ class WhatsAppManager extends EventEmitter {
 
     this.isInitializing = true;
     this.status = 'connecting';
-    if (userId) this.ownerId = userId;
 
     try {
       if (!fs.existsSync(SESSION_DIR)) {
         fs.mkdirSync(SESSION_DIR, { recursive: true });
       }
 
-      // Baileys é ESM — usamos import() dinâmico
       const {
         default: makeWASocket,
         useMultiFileAuthState,
@@ -95,13 +92,12 @@ class WhatsAppManager extends EventEmitter {
 
           if (loggedOut) {
             console.log('[WA] Sessão encerrada (logout). Limpando credenciais...');
-            this.ownerId = null;
             try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch { /* ok */ }
             fs.mkdirSync(SESSION_DIR, { recursive: true });
           } else if (this.reconnectAttempts < 5) {
             this.reconnectAttempts++;
             console.log(`[WA] Reconectando (tentativa ${this.reconnectAttempts}/5)...`);
-            setTimeout(() => this.initialize(this.ownerId), 8000);
+            setTimeout(() => this.initialize(), 8000);
           } else {
             this.emit('max_reconnect_reached', { message: 'Máximo de tentativas atingido' });
           }
@@ -121,42 +117,26 @@ class WhatsAppManager extends EventEmitter {
   }
 
   async sendMessage(chatId, text, imageUrl = null) {
-  if (this.status !== 'ready' || !this.sock || !this.sock.ws || this.sock.ws.readyState !== 1) {
-    throw new Error('WhatsApp não está conectado. Vá em Configurações e escaneie o QR Code.');
-  }
-
-  try {
-    if (imageUrl) {
-      try {
-        const response = await fetch(imageUrl);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const arrayBuffer = await response.arrayBuffer();
-        const imageBuffer = Buffer.from(arrayBuffer);
-        const contentType = response.headers.get('content-type') || 'image/jpeg';
-        const mimetype = contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/jpeg';
-
-        await this.sock.sendMessage(chatId, { image: imageBuffer, caption: text, mimetype });
-      } catch {
+    if (this.status !== 'ready' || !this.sock) {
+      throw new Error('WhatsApp não está conectado');
+    }
+    try {
+      if (imageUrl) {
+        try {
+          await this.sock.sendMessage(chatId, { image: { url: imageUrl }, caption: text });
+        } catch {
+          await this.sock.sendMessage(chatId, { text });
+        }
+      } else {
         await this.sock.sendMessage(chatId, { text });
       }
-    } else {
-      await this.sock.sendMessage(chatId, { text });
+      await new Promise((r) => setTimeout(r, 2000));
+      return { success: true };
+    } catch (err) {
+      console.error(`[WA] Erro ao enviar para ${chatId}:`, err.message);
+      return { success: false, error: err.message };
     }
-
-    await new Promise(r => setTimeout(r, 1800));
-    return { success: true };
-  } catch (err) {
-    console.error(`[WA] Erro ao enviar para ${chatId}:`, err.message);
-    throw new Error('WhatsApp não está conectado. Vá em Configurações e escaneie o QR Code.');
   }
-}
-    await new Promise(r => setTimeout(r, 1800));
-    return { success: true };
-  } catch (err) {
-    console.error(`[WA] Erro ao enviar para ${chatId}:`, err.message);
-    throw new Error('WhatsApp não está conectado. Vá em Configurações e escaneie o QR Code.');
-  }
-}
 
   async getGroups() {
     if (this.status !== 'ready' || !this.sock) {
@@ -175,31 +155,16 @@ class WhatsAppManager extends EventEmitter {
     }
   }
 
-  // Retorna true se o usuário pode interagir com esta sessão
-  isOwner(userId, isAdmin = false) {
-    return isAdmin || !this.ownerId || this.ownerId === userId;
-  }
-
-  getStatus(requestingUserId = null, isAdmin = false) {
-  const isReallyConnected = !!(
-    this.sock && 
-    this.sock.ws && 
-    this.sock.ws.readyState === 1 && 
-    this.status === 'ready'
-  );
-
-  const finalStatus = isReallyConnected ? 'ready' : this.status;
-
-  if (isAdmin || !this.ownerId || this.ownerId === requestingUserId) {
+  getStatus() {
     return {
-      status: finalStatus,
-      phone: this.phone,
+      status:            this.status,
+      phone:             this.phone,
       reconnectAttempts: this.reconnectAttempts,
-      connectedSince: this.connectedSince,
+      connectedSince:    this.connectedSince,
+      rateLimitedUntil:  null,
     };
   }
-  return { status: 'disconnected', phone: null };
-}
+
   async logout() {
     try {
       if (this.sock) await this.sock.logout();
@@ -208,7 +173,6 @@ class WhatsAppManager extends EventEmitter {
     this.connectedSince = null;
     this.phone          = null;
     this.qrCode         = null;
-    this.ownerId        = null;
     this.reconnectAttempts = 0;
     this.sock           = null;
     this.isInitializing = false;
