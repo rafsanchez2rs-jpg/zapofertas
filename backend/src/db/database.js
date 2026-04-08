@@ -1,24 +1,18 @@
-const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
+const { Pool } = require('pg');
 require('dotenv').config();
 
-const DB_PATH = process.env.DB_PATH || './data/zapoferta.db';
-const dbDir = path.dirname(path.resolve(DB_PATH));
-
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
-}
-
-let db;
+let pool;
 
 function getDb() {
-  if (!db) {
-    db = new Database(path.resolve(DB_PATH));
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
+  if (!pool) {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: {
+        rejectUnauthorized: false, // necessário no Render
+      },
+    });
   }
-  return db;
+  return pool;
 }
 
 module.exports = { getDb };
