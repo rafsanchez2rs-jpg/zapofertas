@@ -121,7 +121,6 @@ class WhatsAppManager extends EventEmitter {
   }
 
   async sendMessage(chatId, text, imageUrl = null) {
-  // Verificação forte
   if (this.status !== 'ready' || !this.sock || !this.sock.ws || this.sock.ws.readyState !== 1) {
     throw new Error('WhatsApp não está conectado. Vá em Configurações e escaneie o QR Code.');
   }
@@ -136,11 +135,7 @@ class WhatsAppManager extends EventEmitter {
         const contentType = response.headers.get('content-type') || 'image/jpeg';
         const mimetype = contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/jpeg';
 
-        await this.sock.sendMessage(chatId, {
-          image: imageBuffer,
-          caption: text,
-          mimetype,
-        });
+        await this.sock.sendMessage(chatId, { image: imageBuffer, caption: text, mimetype });
       } catch {
         await this.sock.sendMessage(chatId, { text });
       }
@@ -148,6 +143,13 @@ class WhatsAppManager extends EventEmitter {
       await this.sock.sendMessage(chatId, { text });
     }
 
+    await new Promise(r => setTimeout(r, 1800));
+    return { success: true };
+  } catch (err) {
+    console.error(`[WA] Erro ao enviar para ${chatId}:`, err.message);
+    throw new Error('WhatsApp não está conectado. Vá em Configurações e escaneie o QR Code.');
+  }
+}
     await new Promise(r => setTimeout(r, 1800));
     return { success: true };
   } catch (err) {
