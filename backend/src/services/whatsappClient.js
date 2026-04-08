@@ -14,9 +14,10 @@ class WhatsAppManager extends EventEmitter {
     this.reconnectAttempts = 0;
     this.isInitializing    = false;
     this.sock              = null;
+    this.ownerId           = null; // userId dono da sessão atual
   }
 
-  async initialize() {
+  async initialize(userId = null) {
     if (this.isInitializing) return;
     if (this.status === 'ready') return;
     if (this.status === 'qr' && this.sock) return;
@@ -24,12 +25,14 @@ class WhatsAppManager extends EventEmitter {
 
     this.isInitializing = true;
     this.status = 'connecting';
+    if (userId) this.ownerId = userId;
 
     try {
       if (!fs.existsSync(SESSION_DIR)) {
         fs.mkdirSync(SESSION_DIR, { recursive: true });
       }
 
+      // Baileys é ESM — usamos import() dinâmico
       const {
         default: makeWASocket,
         useMultiFileAuthState,
@@ -92,12 +95,13 @@ class WhatsAppManager extends EventEmitter {
 
           if (loggedOut) {
             console.log('[WA] Sessão encerrada (logout). Limpando credenciais...');
+            this.ownerId = null;
             try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch { /* ok */ }
             fs.mkdirSync(SESSION_DIR, { recursive: true });
           } else if (this.reconnectAttempts < 5) {
             this.reconnectAttempts++;
             console.log(`[WA] Reconectando (tentativa ${this.reconnectAttempts}/5)...`);
-            setTimeout(() => this.initialize(), 8000);
+            setTimeout(() => this.initialize(this.ownerId), 8000);
           } else {
             this.emit('max_reconnect_reached', { message: 'Máximo de tentativas atingido' });
           }
@@ -123,7 +127,18 @@ class WhatsAppManager extends EventEmitter {
     try {
       if (imageUrl) {
         try {
-          await this.sock.sendMessage(chatId, { image: { url: imageUrl }, caption: text });
+          const response = await fetch(imageUrl);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const arrayBuffer = await response.arrayBuffer();
+          const imageBuffer = Buffer.from(arrayBuffer);
+          const contentType = response.headers.get('content-type') || '';
+          const mimetype = contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/jpeg';
+
+          await this.sock.sendMessage(chatId, {
+            image: imageBuffer,
+            caption: text,
+            mimetype,
+          });
         } catch {
           await this.sock.sendMessage(chatId, { text });
         }
@@ -155,12 +170,28 @@ class WhatsAppManager extends EventEmitter {
     }
   }
 
-  getStatus() {
+  // Retorna true se o usuário pode interagir com esta sessão
+  isOwner(userId, isAdmin = false) {
+    return isAdmin || !this.ownerId || this.ownerId === userId;
+  }
+
+  getStatus(requestingUserId = null, isAdmin = false) {
+    // Admin e dono da sessão vêem o status real
+    if (isAdmin || !this.ownerId || this.ownerId === requestingUserId) {
+      return {
+        status:            this.status,
+        phone:             this.phone,
+        reconnectAttempts: this.reconnectAttempts,
+        connectedSince:    this.connectedSince,
+        rateLimitedUntil:  null,
+      };
+    }
+    // Outros usuários vêem desconectado — não expõe sessão alheia
     return {
-      status:            this.status,
-      phone:             this.phone,
-      reconnectAttempts: this.reconnectAttempts,
-      connectedSince:    this.connectedSince,
+      status:            'disconnected',
+      phone:             null,
+      reconnectAttempts: 0,
+      connectedSince:    null,
       rateLimitedUntil:  null,
     };
   }
@@ -173,6 +204,7 @@ class WhatsAppManager extends EventEmitter {
     this.connectedSince = null;
     this.phone          = null;
     this.qrCode         = null;
+    this.ownerId        = null;
     this.reconnectAttempts = 0;
     this.sock           = null;
     this.isInitializing = false;
