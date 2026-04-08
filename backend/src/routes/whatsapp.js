@@ -9,8 +9,7 @@ const router = express.Router();
 // GET /api/whatsapp/status
 router.get('/status', authenticate, (req, res) => {
   try {
-    const isAdmin = req.user.role === 'admin';
-    const status = waManager.getStatus(req.user.id, isAdmin);
+    const status = waManager.getStatus();
     res.json(status);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -20,13 +19,9 @@ router.get('/status', authenticate, (req, res) => {
 // GET /api/whatsapp/qrcode
 router.get('/qrcode', authenticate, async (req, res) => {
   try {
-    const isAdmin = req.user.role === 'admin';
-    if (!waManager.isOwner(req.user.id, isAdmin)) {
-      return res.status(403).json({ error: 'Já existe uma sessão WhatsApp ativa de outro usuário.' });
-    }
     if (!waManager.qrCode) {
       if (waManager.status === 'disconnected') {
-        waManager.initialize(req.user.id).catch((err) => {
+        waManager.initialize().catch((err) => {
           console.error('[WA Route] Init error:', err.message);
         });
       }
@@ -42,12 +37,8 @@ router.get('/qrcode', authenticate, async (req, res) => {
 // POST /api/whatsapp/connect
 router.post('/connect', authenticate, (req, res) => {
   try {
-    const isAdmin = req.user.role === 'admin';
-    if (!waManager.isOwner(req.user.id, isAdmin)) {
-      return res.status(403).json({ error: 'Já existe uma sessão WhatsApp ativa. Apenas o dono pode gerenciá-la.' });
-    }
+    const status = waManager.getStatus();
 
-    const status = waManager.getStatus(req.user.id, isAdmin);
     if (status.rateLimitedUntil) {
       const remainingMs = status.rateLimitedUntil - Date.now();
       const remainingMin = Math.ceil(remainingMs / 60000);
@@ -58,7 +49,7 @@ router.post('/connect', authenticate, (req, res) => {
       });
     }
 
-    waManager.initialize(req.user.id).catch((err) => {
+    waManager.initialize().catch((err) => {
       console.error('[WA Route] Init error:', err.message);
     });
     res.json({ message: 'Iniciando conexão WhatsApp. Aguarde o QR Code.' });
@@ -70,10 +61,6 @@ router.post('/connect', authenticate, (req, res) => {
 // POST /api/whatsapp/disconnect
 router.post('/disconnect', authenticate, async (req, res) => {
   try {
-    const isAdmin = req.user.role === 'admin';
-    if (!waManager.isOwner(req.user.id, isAdmin)) {
-      return res.status(403).json({ error: 'Você não tem permissão para desconectar esta sessão.' });
-    }
     await waManager.logout();
     res.json({ message: 'WhatsApp desconectado' });
   } catch (err) {
@@ -81,13 +68,9 @@ router.post('/disconnect', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/whatsapp/groups — get live groups from WhatsApp
+// GET /api/whatsapp/groups
 router.get('/groups', authenticate, async (req, res) => {
   try {
-    const isAdmin = req.user.role === 'admin';
-    if (!waManager.isOwner(req.user.id, isAdmin)) {
-      return res.status(403).json({ error: 'WhatsApp não conectado para este usuário.' });
-    }
     const groups = await waManager.getGroups();
     res.json({ groups });
   } catch (err) {
