@@ -8,9 +8,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
-    "migrate:firestore": "node scripts/migrate-to-firestore.js",
-    "migrate:firestore:dry": "node scripts/migrate-to-firestore.js --dry-run"
+    "dev": "nodemon src/server.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
