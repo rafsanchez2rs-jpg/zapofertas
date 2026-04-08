@@ -121,37 +121,40 @@ class WhatsAppManager extends EventEmitter {
   }
 
   async sendMessage(chatId, text, imageUrl = null) {
-    if (this.status !== 'ready' || !this.sock) {
-      throw new Error('WhatsApp não está conectado');
-    }
-    try {
-      if (imageUrl) {
-        try {
-          const response = await fetch(imageUrl);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const arrayBuffer = await response.arrayBuffer();
-          const imageBuffer = Buffer.from(arrayBuffer);
-          const contentType = response.headers.get('content-type') || '';
-          const mimetype = contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/jpeg';
+  // Verificação forte
+  if (this.status !== 'ready' || !this.sock || !this.sock.ws || this.sock.ws.readyState !== 1) {
+    throw new Error('WhatsApp não está conectado. Vá em Configurações e escaneie o QR Code.');
+  }
 
-          await this.sock.sendMessage(chatId, {
-            image: imageBuffer,
-            caption: text,
-            mimetype,
-          });
-        } catch {
-          await this.sock.sendMessage(chatId, { text });
-        }
-      } else {
+  try {
+    if (imageUrl) {
+      try {
+        const response = await fetch(imageUrl);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const arrayBuffer = await response.arrayBuffer();
+        const imageBuffer = Buffer.from(arrayBuffer);
+        const contentType = response.headers.get('content-type') || 'image/jpeg';
+        const mimetype = contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/jpeg';
+
+        await this.sock.sendMessage(chatId, {
+          image: imageBuffer,
+          caption: text,
+          mimetype,
+        });
+      } catch {
         await this.sock.sendMessage(chatId, { text });
       }
-      await new Promise((r) => setTimeout(r, 2000));
-      return { success: true };
-    } catch (err) {
-      console.error(`[WA] Erro ao enviar para ${chatId}:`, err.message);
-      return { success: false, error: err.message };
+    } else {
+      await this.sock.sendMessage(chatId, { text });
     }
+
+    await new Promise(r => setTimeout(r, 1800));
+    return { success: true };
+  } catch (err) {
+    console.error(`[WA] Erro ao enviar para ${chatId}:`, err.message);
+    throw new Error('WhatsApp não está conectado. Vá em Configurações e escaneie o QR Code.');
   }
+}
 
   async getGroups() {
     if (this.status !== 'ready' || !this.sock) {
