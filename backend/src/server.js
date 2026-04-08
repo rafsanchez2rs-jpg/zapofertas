@@ -1,4 +1,6 @@
 require('dotenv').config();
+const { getDb } = require('./db/database');
+const scheduler = require('./scheduler');
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
@@ -154,10 +156,30 @@ app.use((req, res) => {
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
+async function createTables() {
+  const db = getDb();
+
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        role TEXT DEFAULT 'user',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    console.log('✅ Tabela users pronta');
+  } catch (err) {
+    console.error('❌ Erro ao criar tabela:', err.message);
+  }
+}
 const PORT = process.env.PORT || 3001;
 
 runMigrations();
-scheduler.init();
+createTables();
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`ZapOfertas Backend rodando na porta ${PORT}`);
