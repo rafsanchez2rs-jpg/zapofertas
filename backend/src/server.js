@@ -13,7 +13,6 @@ const path = require('path');
 const { runMigrations } = require('./db/migrations');
 const waManager = require('./services/whatsappClient');
 const { authenticate } = require('./middleware/auth');
-const scheduler = require('./scheduler');
 
 const authRoutes = require('./routes/auth');
 const productsRoutes = require('./routes/products');
@@ -141,16 +140,6 @@ if (process.env.NODE_ENV === 'production') {
   }
 }
 
-
-// REMOVA este bloco (ou comente):
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../../frontend/dist')));
-  app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api') && !req.path.startsWith('/ws')) {
-      res.sendFile(path.join(__dirname, '../../frontend/dist/index.html'));
-    }
-  });
-}
 app.use((req, res) => {
   res.status(404).json({ error: `Rota não encontrada: ${req.method} ${req.path}` });
 });
