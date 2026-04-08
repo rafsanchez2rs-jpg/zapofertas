@@ -181,26 +181,25 @@ class WhatsAppManager extends EventEmitter {
   }
 
   getStatus(requestingUserId = null, isAdmin = false) {
-    // Admin e dono da sessão vêem o status real
-    if (isAdmin || !this.ownerId || this.ownerId === requestingUserId) {
-      return {
-        status:            this.status,
-        phone:             this.phone,
-        reconnectAttempts: this.reconnectAttempts,
-        connectedSince:    this.connectedSince,
-        rateLimitedUntil:  null,
-      };
-    }
-    // Outros usuários vêem desconectado — não expõe sessão alheia
+  const isReallyConnected = !!(
+    this.sock && 
+    this.sock.ws && 
+    this.sock.ws.readyState === 1 && 
+    this.status === 'ready'
+  );
+
+  const finalStatus = isReallyConnected ? 'ready' : this.status;
+
+  if (isAdmin || !this.ownerId || this.ownerId === requestingUserId) {
     return {
-      status:            'disconnected',
-      phone:             null,
-      reconnectAttempts: 0,
-      connectedSince:    null,
-      rateLimitedUntil:  null,
+      status: finalStatus,
+      phone: this.phone,
+      reconnectAttempts: this.reconnectAttempts,
+      connectedSince: this.connectedSince,
     };
   }
-
+  return { status: 'disconnected', phone: null };
+}
   async logout() {
     try {
       if (this.sock) await this.sock.logout();
