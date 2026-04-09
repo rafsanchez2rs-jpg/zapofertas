@@ -1,0 +1,9 @@
+node_modules
+.wwebjs_cache
+.wwebjs_auth
+data
+node
+[Array]
+zapoferta-backend@1.0.0
+*.log
+.claude
