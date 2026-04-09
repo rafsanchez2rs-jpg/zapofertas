@@ -2,8 +2,6 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { X, RefreshCw, Wifi, WifiOff, Loader, Clock, AlertTriangle } from 'lucide-react';
 import api from '../services/api';
 
-const POLL_MS      = 4000; // intervalo de polling
-const QR_TIMEOUT_SEC = 60; // QR expira em 60 segundos
 
 function useCountdown(targetMs) {
   const [remaining, setRemaining] = useState(
@@ -30,8 +28,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
   const [error, setError]             = useState(null);
   const [qrExpiresAt, setQrExpiresAt] = useState(null);
   const [qrExpired, setQrExpired]     = useState(false);
-  const pollRef    = useRef(null);
-  const qrTimerRef = useRef(null);
 
   const qrCountdown = useCountdown(qrExpiresAt);
 
@@ -54,14 +50,11 @@ export default function QRCodeModal({ onClose, onConnected }) {
     setQrImage(null);
     setQrExpired(false);
     setQrExpiresAt(null);
-
-    // Busca QR inicial imediatamente
     const fetchQr = async () => {
       try {
         const { data } = await api.get('/whatsapp/qrcode');
         if (data?.qr) {
           setQrImage(data.qr);
-          if (status !== 'qr') startQrTimer();
           setStatus('qr');
         }
       } catch {
@@ -87,7 +80,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
 
     await fetchQr();
 
-    // Polling contínuo
     pollRef.current = setInterval(async () => {
       const connected = await checkStatus();
       if (!connected) await fetchQr();
@@ -109,7 +101,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
       <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-sm animate-slide-up">
 
-        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-text-primary font-bold text-lg">Conectar WhatsApp</h2>
@@ -122,21 +113,17 @@ export default function QRCodeModal({ onClose, onConnected }) {
           </button>
         </div>
 
-        {/* Content */}
         <div className="flex flex-col items-center gap-4">
 
-          {/* Conectando */}
           {status === 'connecting' && (
             <div className="flex flex-col items-center gap-3 py-8">
               <Loader size={32} className="text-accent animate-spin" />
-              <p className="text-text-secondary text-sm">Obtendo QR Code...</p>
               <p className="text-text-secondary text-xs text-center opacity-70">
                 Não feche esta janela durante a conexão
               </p>
             </div>
           )}
 
-          {/* QR Code */}
           {status === 'qr' && qrImage && !qrExpired && (
             <>
               <div className="relative">
@@ -171,7 +158,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
             </>
           )}
 
-          {/* QR expirado */}
           {status === 'qr' && qrExpired && (
             <div className="flex flex-col items-center gap-4 py-6 text-center">
               <div className="w-14 h-14 bg-yellow-500/10 rounded-full flex items-center justify-center">
@@ -188,7 +174,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
             </div>
           )}
 
-          {/* Conectado */}
           {status === 'ready' && (
             <div className="flex flex-col items-center gap-3 py-6">
               <div className="w-14 h-14 bg-accent/20 rounded-full flex items-center justify-center">
@@ -198,7 +183,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
             </div>
           )}
 
-          {/* Erro */}
           {status === 'error' && (
             <div className="flex flex-col items-center gap-3 py-4 text-center">
               <WifiOff size={32} className="text-red-400" />
@@ -211,7 +195,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
           )}
         </div>
 
-        {/* Status indicator */}
         <div className="mt-5 pt-4 border-t border-border flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${
             status === 'ready'  ? 'bg-accent' :

@@ -109,7 +109,8 @@ router.get('/stats', authenticate, (req, res) => {
   const userId = req.user.id;
 
   // Subquery de reset: apenas campanhas após o último reset do dashboard
-  const resetFilter = `AND created_at > (SELECT COALESCE(reset_at, '2000-01-01') FROM dashboard_reset WHERE user_id = ?)`;
+  // Usa COALESCE fora do SELECT para lidar com ausência de linha (sem reset feito)
+  const resetFilter = `AND created_at > COALESCE((SELECT reset_at FROM dashboard_reset WHERE user_id = ?), '2000-01-01')`;
 
   const today = db.prepare(`
     SELECT COUNT(*) as count FROM campaigns
@@ -325,7 +326,7 @@ router.post('/', authenticate, planLimiter, async (req, res) => {
 
     const campaignId = result.lastInsertRowid;
 
-    const insertGroup = db.prepare(`
+      const insertGroup = db.prepare(`
       INSERT INTO campaign_groups (campaign_id, group_id, wa_group_id, group_name, status)
       VALUES (?, ?, ?, ?, 'pending')
     `);
@@ -399,6 +400,27 @@ router.post('/:id/resend', authenticate, planLimiter, async (req, res) => {
   executeCampaign(campaign.id).catch(err => {
     console.error(`[Campaigns] Resend error for ${campaign.id}:`, err);
   });
+});
+
+// PATCH /api/campaigns/:id/reschedule — reagendar campanha agendada
+router.patch('/:id/reschedule', authenticate, (req, res) => {
+  try {
+    const db = getDb();
+    const campaign = db
+      .prepare('SELECT * FROM campaigns WHERE id = ? AND user_id = ?')
+      .get(req.params.id, req.user.id);
+
+    if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
+    if (campaign.status !== 'scheduled') return res.status(400).json({ error: 'Apenas campanhas agendadas podem ser reagendadas' });
+
+    const { scheduled_at } = req.body;
+    if (!scheduled_at) return res.status(400).json({ error: 'Nova data/hora obrigatória' });
+
+    db.prepare('UPDATE campaigns SET scheduled_at = ? WHERE id = ?').run(scheduled_at, req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

@@ -1,6 +1,6 @@
 // ZapOfertas Capturar — Popup Script v5
 
-const BACKEND_URL = 'http://localhost:3001';
+const BACKEND_URL = 'https://zapofertas-backend.onrender.com';
 
 // ── State manager ────────────────────────────────────────────────────────────
 
@@ -88,6 +88,10 @@ function fillProduct(data) {
     img.src = data.imageUrl;
     img.style.display = 'block';
     if (placeholder) placeholder.style.display = 'none';
+    img.onerror = () => {
+      img.style.display = 'none';
+      if (placeholder) placeholder.style.display = 'flex';
+    };
   } else {
     img.style.display = 'none';
     if (placeholder) placeholder.style.display = 'flex';
@@ -207,7 +211,6 @@ async function init() {
     return;
   }
 
-
   await extractFromTab(tab.id);
 }
 
@@ -221,7 +224,7 @@ document.getElementById('btn-retry').addEventListener('click', () => {
 
 document.getElementById('open-link').addEventListener('click', (e) => {
   e.preventDefault();
-  chrome.tabs.create({ url: 'http://localhost:5173/novo-anuncio' });
+  chrome.tabs.create({ url: 'https://zapofertas-frontend.onrender.com/novo-anuncio' });
 });
 
 // Start

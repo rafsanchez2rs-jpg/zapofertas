@@ -7,7 +7,8 @@ const router = express.Router();
 
 // GET /api/groups/wa-status — lightweight WhatsApp connection status for polling
 router.get('/wa-status', authenticate, (req, res) => {
-  res.json(waManager.getStatus());
+  const isAdmin = req.user.role === 'admin';
+  res.json(waManager.getStatus(req.user.id, isAdmin));
 });
 
 // GET /api/groups — list saved groups
@@ -34,8 +35,8 @@ router.get('/wa-sync', authenticate, async (req, res) => {
 
     // Upsert each group
     const upsert = db.prepare(`
-      INSERT INTO groups (user_id, wa_group_id, name, participant_count)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO groups (user_id, wa_group_id, name, participant_count, active)
+      VALUES (?, ?, ?, ?, 0)
       ON CONFLICT(user_id, wa_group_id) DO UPDATE SET
         name = excluded.name,
         participant_count = excluded.participant_count,

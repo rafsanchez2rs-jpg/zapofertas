@@ -1,9 +1,37 @@
 import React, { useState, useEffect } from 'react';
 import {
   History as HistoryIcon, RefreshCw,
-  ExternalLink, RotateCcw, Loader, Filter, Trash2, AlertTriangle,
+  ExternalLink, RotateCcw, Loader, Filter, Trash2, AlertTriangle, Edit2, Calendar,
 } from 'lucide-react';
 import api from '../services/api';
+
+// Formata data/hora de strings SQLite (sem Z) ou ISO (com Z) para fuso de São Paulo
+function fmtDate(dateStr) {
+  if (!dateStr) return '—';
+  const iso = dateStr.replace(' ', 'T');
+  const withTz = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+  return new Date(withTz).toLocaleString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit', month: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+// Converte ISO UTC para valor local de datetime-local input (YYYY-MM-DDTHH:mm)
+function isoToLocalInput(dateStr) {
+  if (!dateStr) return '';
+  const iso = dateStr.replace(' ', 'T');
+  const withTz = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+  const d = new Date(withTz);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function localDateMin() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
 
 const detectPlatform = (platform, productUrl) => {
   const url = productUrl || '';
@@ -53,6 +81,9 @@ export default function History() {
   const [showClearModal, setShowClearModal] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [toast, setToast] = useState(null);
+  const [editSchedule, setEditSchedule] = useState(null);
+  const [editDate, setEditDate] = useState('');
+  const [rescheduling, setRescheduling] = useState(false);
 
   const loadHistory = async (sf, pf) => {
     setLoading(true);
@@ -85,6 +116,29 @@ export default function History() {
       alert(err.response?.data?.error || 'Erro ao reenviar');
     } finally {
       setResending(null);
+    }
+  };
+
+  const openEditSchedule = (c) => {
+    setEditSchedule(c);
+    setEditDate(isoToLocalInput(c.scheduled_at));
+  };
+
+  const handleReschedule = async () => {
+    if (!editSchedule || !editDate) return;
+    setRescheduling(true);
+    try {
+      const localDate = new Date(editDate);
+      await api.patch(`/campaigns/${editSchedule.id}/reschedule`, {
+        scheduled_at: localDate.toISOString(),
+      });
+      setEditSchedule(null);
+      showToast('✅ Agendamento atualizado com sucesso');
+      setTimeout(() => loadHistory(statusFilter, platformFilter), 500);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Erro ao reagendar');
+    } finally {
+      setRescheduling(false);
     }
   };
 
@@ -149,6 +203,54 @@ export default function History() {
       {toast && (
         <div className="fixed top-5 right-5 z-50 bg-card border border-accent/30 text-accent text-sm font-medium px-4 py-3 rounded-xl shadow-lg animate-slide-up">
           {toast}
+        </div>
+      )}
+
+      {/* Modal editar agendamento */}
+      {editSchedule && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-sm animate-slide-up">
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-blue-500/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Calendar size={18} className="text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-text-primary font-bold text-base">Editar Agendamento</h3>
+                  <p className="text-text-secondary text-xs mt-0.5 truncate max-w-[200px]">{editSchedule.product_name}</p>
+                </div>
+              </div>
+              <div>
+                <label className="text-text-secondary text-xs mb-1.5 block">Nova data e hora</label>
+                <input
+                  type="datetime-local"
+                  value={editDate}
+                  onChange={(e) => setEditDate(e.target.value)}
+                  min={localDateMin()}
+                  className="input w-full text-sm"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditSchedule(null)}
+                  disabled={rescheduling}
+                  className="btn-secondary flex-1 text-sm"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReschedule}
+                  disabled={rescheduling || !editDate}
+                  className="flex-1 text-sm bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2.5 px-4 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {rescheduling ? <Loader size={14} className="animate-spin" /> : <Calendar size={14} />}
+                  Salvar
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -321,18 +423,6 @@ export default function History() {
                         <td className="px-4 py-3 text-text-secondary text-xs whitespace-nowrap">
                           {c.status === 'scheduled' && c.scheduled_at ? (
                             <span className="text-blue-400">
-                              Agendado: {new Date(c.scheduled_at + 'Z').toLocaleString('pt-BR', {
-                                timeZone: 'America/Sao_Paulo',
-                                day: '2-digit', month: '2-digit',
-                                hour: '2-digit', minute: '2-digit',
-                              })}
-                            </span>
-                          ) : (
-                            new Date(c.created_at + 'Z').toLocaleString('pt-BR', {
-                              timeZone: 'America/Sao_Paulo',
-                              day: '2-digit', month: '2-digit',
-                              hour: '2-digit', minute: '2-digit',
-                            })
                           )}
                         </td>
                         <td className="px-4 py-3">
@@ -363,17 +453,26 @@ export default function History() {
                               </button>
                             )}
                             {c.status === 'scheduled' && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleCancel(c.id); }}
-                                disabled={cancelling === c.id}
-                                className="text-text-secondary hover:text-red-400 transition-colors p-1"
-                                title="Cancelar agendamento"
-                              >
-                                {cancelling === c.id
-                                  ? <Loader size={13} className="animate-spin" />
-                                  : <Trash2 size={13} />
-                                }
-                              </button>
+                              <>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); openEditSchedule(c); }}
+                                  className="text-text-secondary hover:text-blue-400 transition-colors p-1"
+                                  title="Editar agendamento"
+                                >
+                                  <Edit2 size={13} />
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleCancel(c.id); }}
+                                  disabled={cancelling === c.id}
+                                  className="text-text-secondary hover:text-red-400 transition-colors p-1"
+                                  title="Cancelar agendamento"
+                                >
+                                  {cancelling === c.id
+                                    ? <Loader size={13} className="animate-spin" />
+                                    : <Trash2 size={13} />
+                                  }
+                                </button>
+                              </>
                             )}
                           </div>
                         </td>

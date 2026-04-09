@@ -1,16 +1,19 @@
 const HEADLINES = [
-  'OFERTA RELÂMPAGO',
-  'PREÇO DE AMIGO',
-  'TÁ DE GRAÇA',
-  'IMPOSSÍVEL IGNORAR',
-  'CORRE QUE VAI ACABAR',
-  'MEU BOLSO AGRADECEU',
-  'NÃO ACREDITEI NO PREÇO',
-  'ACHEI E VIM AVISAR',
-  'PASSOU RAIVA COM ESSE PREÇO',
-  'ISSO NÃO É NORMAL',
-  'VAI PERDER ESSA?',
-  'SAINDO DE GRAÇA',
+  '🚨 ATENÇÃO GRUPO! 🚨',
+  '😱 VOCÊ NÃO VAI ACREDITAR NO PREÇO DISSO!',
+  '🔥 ÚLTIMA CHANCE HOJE! 🔥',
+  '⏰ ACABA EM ALGUMAS HORAS!',
+  '🚨 ALERTA DE PROMOÇÃO RELÂMPAGO!',
+  '🛍️ PREÇO QUE TÁ DANDO VERGONHA!',
+  '💎 ACHADINHO QUE VALE CADA CENTAVO',
+  '🤔 LEVANTA A MÃO QUEM AMA DESCONTO! 🙋‍♀️',
+  '😍 QUEM AÍ TÁ PRECISANDO ECONOMIZAR?',
+  '🔥 TODO MUNDO TÁ COMPRANDO ISSO!',
+  '🛒 SE VOCÊ GOSTA DE ECONOMIZAR, ABRE AGORA!',
+  '🚨 PROMOÇÃO QUE TÁ BOM DEMAIS PRA SER VERDADE!',
+  '🛍️ ACHADINHOS DO DIA',
+  '😱 PREÇO QUE TÁ DANDO VERGONHA DE TÃO BARATO!',
+  '✅ OFERTA EXCLUSIVA ',
 ];
 
 // Anti-repetição: não sortear a mesma headline duas vezes seguidas
@@ -111,7 +114,9 @@ function generateAd(productData, userId = 'default') {
   if (originalPrice && originalPrice > 0 && originalPrice > salePrice) {
     lines.push(`De❌ ${formatPrice(originalPrice)}`);
   }
-  lines.push(`Por 🔥 ${formatPrice(salePrice)}`);
+  // Se pixPrice == salePrice, o preço já é o preço PIX — exibe o label "NO PIX" na linha Por
+  const isPIXPrice = pixPrice && pixPrice > 0 && Math.abs(pixPrice - salePrice) < 0.01;
+  lines.push(`Por 🔥 ${formatPrice(salePrice)}${isPIXPrice ? ' NO PIX' : ''}`);
   if (pixPrice && pixPrice > 0 && pixPrice < salePrice) {
     lines.push(`No Pix 💰 ${formatPrice(pixPrice)}`);
   }
