@@ -13,7 +13,7 @@ const POLL_MS      = 4000; // intervalo de polling para estado de conexão
 const evo = axios.create({
   baseURL: EVO_URL,
   headers:  { apikey: EVO_KEY },
-  timeout:  15000,
+  timeout:  60000,
 });
 
 // ── File logger ───────────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@ const INSTANCE = process.env.EVOLUTION_INSTANCE || 'zapofertas';
 const evo = axios.create({
   baseURL: EVO_URL,
   headers: { apikey: EVO_KEY },
-  timeout: 15000,
+  timeout: 60000,
 });
 
 // GET /api/whatsapp/status
