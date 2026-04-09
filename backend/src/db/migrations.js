@@ -1,4 +1,5 @@
 const { getDb } = require('./database');
+const bcrypt = require('bcrypt');
 
 function runMigrations() {
   const db = getDb();
@@ -142,8 +143,16 @@ function runMigrations() {
     const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(admin.email);
     if (existing) {
       db.prepare('UPDATE users SET role = ?, plan = ? WHERE email = ?').run('admin', 'pro', admin.email);
+    } else {
+      // Criar admin com senha padrão se não existe
+      const defaultPassword = admin.email === 'pati_martel@hotmail.com' ? 'Admin@123' : 'Admin@123';
+      const hashedPassword = bcrypt.hashSync(defaultPassword, 12);
+      const result = db.prepare(
+        'INSERT INTO users (email, password, name, plan, role, active) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(admin.email, hashedPassword, admin.name, 'pro', 'admin', 1);
+      db.prepare('INSERT INTO settings (user_id) VALUES (?)').run(result.lastInsertRowid);
+      console.log(`[Admin] Criado admin: ${admin.email}`);
     }
-    // Se não existe ainda, será criado com role=admin quando fizer login/registro
   }
 
   const rafael = db.prepare(`SELECT role FROM users WHERE email = 'rafsanchez2@hotmail.com'`).get();
