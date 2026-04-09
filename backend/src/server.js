@@ -1,6 +1,5 @@
 require('dotenv').config();
-const { getDb } = require('./db/database');
-const scheduler = require('./scheduler');
+
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
@@ -8,12 +7,13 @@ const WebSocket = require('ws');
 const QRCode = require('qrcode');
 const rateLimit = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
-
 const path = require('path');
+
 const { runMigrations } = require('./db/migrations');
 const waManager = require('./services/whatsappClient');
-const { authenticate } = require('./middleware/auth');
+const scheduler = require('./scheduler');
 
+// Rotas
 const authRoutes = require('./routes/auth');
 const productsRoutes = require('./routes/products');
 const groupsRoutes = require('./routes/groups');
@@ -26,7 +26,7 @@ const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
 
-// ── WebSocket server — broadcast WhatsApp events to all authenticated clients ─
+// ── WebSocket ─────────────────────────────────────────
 const wss = new WebSocket.Server({ server, path: '/ws/whatsapp' });
 const wsClients = new Set();
 
@@ -36,44 +36,31 @@ wss.on('connection', (ws, req) => {
 
   if (!token) {
     ws.send(JSON.stringify({ error: 'Token obrigatório' }));
-    ws.close();
-    return;
+    return ws.close();
   }
 
   try {
     jwt.verify(token, process.env.JWT_SECRET || 'dev_secret');
   } catch {
     ws.send(JSON.stringify({ error: 'Token inválido' }));
-    ws.close();
-    return;
+    return ws.close();
   }
 
   wsClients.add(ws);
   ws.on('close', () => wsClients.delete(ws));
 
-  // Send current status immediately on connect
   const { status } = waManager.getStatus();
-  if (status === 'qr' && waManager.qrCode) {
-    QRCode.toDataURL(waManager.qrCode)
-      .then((qrBase64) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ status: 'qr', qr: qrBase64 }));
-        }
-      })
-      .catch(() => {});
-  } else {
-    ws.send(JSON.stringify({ status }));
-  }
+  ws.send(JSON.stringify({ status }));
 });
 
 function broadcast(data) {
   const payload = JSON.stringify(data);
-  for (const ws of wsClients) {
+  wsClients.forEach(ws => {
     if (ws.readyState === WebSocket.OPEN) ws.send(payload);
-  }
+  });
 }
 
-// ── Wire waManager events → WebSocket broadcasts ──────────────────────────────
+// Eventos WhatsApp
 waManager.on('qr', async (qr) => {
   try {
     const qrBase64 = await QRCode.toDataURL(qr);
@@ -81,36 +68,24 @@ waManager.on('qr', async (qr) => {
   } catch {}
 });
 
-waManager.on('authenticated', () => broadcast({ status: 'authenticated' }));
 waManager.on('ready', () => broadcast({ status: 'ready' }));
-waManager.on('auth_failure', (msg) => broadcast({ status: 'auth_failure', message: msg }));
-waManager.on('disconnected', (reason) => broadcast({ status: 'disconnected', reason }));
-waManager.on('rate_limited', (rl) => broadcast({ status: 'rate_limited', until: rl?.until }));
-waManager.on('max_reconnect_reached', () => broadcast({ status: 'max_reconnect_reached' }));
+waManager.on('authenticated', () => broadcast({ status: 'authenticated' }));
+waManager.on('disconnected', (r) => broadcast({ status: 'disconnected', reason: r }));
 
-// ── Middleware ────────────────────────────────────────────────────────────────
+// ── Middlewares ───────────────────────────────────────
 app.use(cors());
-
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const globalLimiter = rateLimit({
+const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Muitas requisições. Tente novamente em 15 minutos.' },
-});
-app.use(globalLimiter);
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  message: { error: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
+  max: 200
 });
 
-// ── Routes ────────────────────────────────────────────────────────────────────
-app.use('/api/auth', authLimiter, authRoutes);
+app.use(limiter);
+
+// ── Rotas ─────────────────────────────────────────────
+app.use('/api/auth', authRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/groups', groupsRoutes);
 app.use('/api/campaigns', campaignsRoutes);
@@ -118,69 +93,36 @@ app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
-// Aliases sem /api para compatibilidade com o frontend
-app.use('/auth', authLimiter, authRoutes);
-app.use('/products', productsRoutes);
-app.use('/groups', groupsRoutes);
-app.use('/campaigns', campaignsRoutes);
-app.use('/whatsapp', whatsappRoutes);
-app.use('/admin', adminRoutes);
-app.use('/dashboard', dashboardRoutes);
-
+// ── Frontend (produção) ───────────────────────────────
 if (process.env.NODE_ENV === 'production') {
-  const frontendDist  = path.join(__dirname, '../../frontend/dist');
-  const frontendIndex = path.join(frontendDist, 'index.html');
-  if (require('fs').existsSync(frontendIndex)) {
-    app.use(express.static(frontendDist));
-    app.get('*', (req, res) => {
-      if (!req.path.startsWith('/api') && !req.path.startsWith('/ws')) {
-        res.sendFile(frontendIndex);
-      }
-    });
-  }
+  const frontendPath = path.join(__dirname, '../../frontend/dist');
+
+  app.use(express.static(frontendPath));
+
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api') && !req.path.startsWith('/ws')) {
+      res.sendFile(path.join(frontendPath, 'index.html'));
+    }
+  });
 }
 
+// ── 404 ───────────────────────────────────────────────
 app.use((req, res) => {
-  res.status(404).json({ error: `Rota não encontrada: ${req.method} ${req.path}` });
+  res.status(404).json({ error: 'Rota não encontrada' });
 });
 
-// ── Start ─────────────────────────────────────────────────────────────────────
-
+// ── Start ─────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 
 runMigrations();
+scheduler.init();
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`ZapOfertas Backend rodando na porta ${PORT}`);
-  console.log(`API: http://localhost:${PORT}/api`);
-  console.log(`Env: ${process.env.NODE_ENV}`);
-
-  // Inicializar WhatsApp após servidor subir
-  try {
-    waManager.initialize();
-  } catch (err) {
-    console.error('[WA] Erro ao inicializar:', err.message);
-  }
-
-  // Health check: garante que WA reconecta se cair silenciosamente
-  setInterval(() => {
-    const { status, rateLimitedUntil } = waManager.getStatus();
-    if (rateLimitedUntil) return;
-    if (status !== 'ready' && status !== 'connecting' && status !== 'qr') {
-      console.log('[Server] Health check: WA não conectado, tentando reconectar...');
-      waManager.initialize().catch(() => {});
-    }
-  }, 60000);
+  console.log(`🚀 Rodando na porta ${PORT}`);
 });
 
-process.on('SIGTERM', () => {
-  console.log('[Server] SIGTERM received. Shutting down...');
-  server.close(() => process.exit(0));
-});
-
-process.on('SIGINT', () => {
-  console.log('\n[Server] SIGINT received. Shutting down...');
-  server.close(() => process.exit(0));
-});
+// Encerramento
+process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT', () => process.exit(0));
 
 module.exports = { app, server };
