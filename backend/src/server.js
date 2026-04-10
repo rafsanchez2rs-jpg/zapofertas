@@ -142,18 +142,22 @@ app.use((req, res) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 
-runMigrations();
-scheduler.init();
-
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`ZapOfertas Backend rodando na porta ${PORT}`);
-  console.log(`API: http://localhost:${PORT}/api`);
-  console.log(`Env: ${process.env.NODE_ENV}`);
-
-  // Verificar se já há sessão ativa na Evolution API ao iniciar
-  waManager.initialize().catch((err) => {
-    console.error('[WA] Erro ao verificar sessão Evolution API:', err.message);
+async function start() {
+  await runMigrations();
+  scheduler.init();
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`ZapOfertas Backend rodando na porta ${PORT}`);
+    console.log(`API: http://localhost:${PORT}/api`);
+    console.log(`Env: ${process.env.NODE_ENV}`);
+    waManager.initialize().catch((err) => {
+      console.error('[WA] Erro ao verificar sessão Evolution API:', err.message);
+    });
   });
+}
+
+start().catch((err) => {
+  console.error('[Server] Falha ao iniciar:', err);
+  process.exit(1);
 });
 
 process.on('SIGTERM', () => {

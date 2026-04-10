@@ -1,48 +1,53 @@
 const { getDb } = require('./database');
 const bcrypt = require('bcrypt');
 
-function runMigrations() {
-  const db = getDb();
+async function runMigrations() {
+  const pool = getDb();
 
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       email TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
-      name TEXT,
+      name TEXT DEFAULT '',
       plan TEXT NOT NULL DEFAULT 'free',
+      role TEXT NOT NULL DEFAULT 'user',
+      active INTEGER NOT NULL DEFAULT 1,
       daily_sends INTEGER NOT NULL DEFAULT 0,
       last_send_date TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS collections (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS groups (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       wa_group_id TEXT NOT NULL,
       name TEXT NOT NULL,
       active INTEGER NOT NULL DEFAULT 1,
-      collection_id INTEGER,
+      collection_id INTEGER REFERENCES collections(id) ON DELETE SET NULL,
       participant_count INTEGER DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE(user_id, wa_group_id)
-    );
+    )
+  `);
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS campaigns (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       product_name TEXT NOT NULL,
       platform TEXT NOT NULL,
       original_price REAL,
@@ -50,115 +55,102 @@ function runMigrations() {
       pix_price REAL,
       discount_percent REAL,
       coupon_value REAL,
+      coupon_type TEXT DEFAULT 'fixed',
+      coupon_link TEXT,
+      coupon_code TEXT,
       image_url TEXT,
       product_url TEXT NOT NULL,
       message TEXT NOT NULL,
       has_headline INTEGER DEFAULT 0,
       headline TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
-      scheduled_at TEXT,
-      sent_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
+      scheduled_at TIMESTAMPTZ,
+      fired_at TIMESTAMPTZ,
+      sent_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS campaign_groups (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      campaign_id INTEGER NOT NULL,
-      group_id INTEGER NOT NULL,
+      id SERIAL PRIMARY KEY,
+      campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+      group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
       wa_group_id TEXT NOT NULL,
       group_name TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
-      sent_at TEXT,
-      error_message TEXT,
-      FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
-      FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
-    );
+      sent_at TIMESTAMPTZ,
+      error_message TEXT
+    )
+  `);
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS settings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER UNIQUE NOT NULL,
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       delay_between_sends INTEGER NOT NULL DEFAULT 3000,
       send_image INTEGER NOT NULL DEFAULT 1,
       auto_reconnect INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS refresh_tokens (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      token TEXT UNIQUE NOT NULL,
-      expires_at TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
+      coupon_default_link TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
   `);
 
-  // Tabela de reset de métricas do dashboard
-  db.exec(`
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS refresh_tokens (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token TEXT UNIQUE NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS dashboard_reset (
       user_id INTEGER PRIMARY KEY,
-      reset_at DATETIME
-    );
+      reset_at TIMESTAMPTZ
+    )
   `);
 
-  // Tabela de convites
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS invites (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       token TEXT UNIQUE NOT NULL,
       plan TEXT NOT NULL DEFAULT 'pro',
-      created_by INTEGER NOT NULL,
-      used_by INTEGER,
-      used_at DATETIME,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
-    );
+      created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      used_by INTEGER REFERENCES users(id),
+      used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
   `);
 
-  // Migrations incrementais (ALTER TABLE é seguro via try/catch no SQLite)
-  const alterations = [
-    `ALTER TABLE campaigns ADD COLUMN coupon_type TEXT DEFAULT 'fixed'`,
-    `ALTER TABLE campaigns ADD COLUMN coupon_link TEXT`,
-    `ALTER TABLE campaigns ADD COLUMN coupon_code TEXT`,
-    `ALTER TABLE settings ADD COLUMN coupon_default_link TEXT`,
-    `ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'`,
-    `ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1`,
-    `ALTER TABLE campaigns ADD COLUMN scheduled_at DATETIME`,
-    `ALTER TABLE campaigns ADD COLUMN fired_at DATETIME`,
-  ];
-  for (const sql of alterations) {
-    try { db.exec(sql); } catch { /* coluna já existe */ }
-  }
-
-  // Garantir admins fixos por email — atualizar se existir, ignorar se não existir ainda
+  // Seed admin users
   const admins = [
     { email: 'pati_martel@hotmail.com', name: 'Patricia MARTEL' },
     { email: 'rafsanchez2@hotmail.com', name: 'Rafael' },
   ];
 
   for (const admin of admins) {
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(admin.email);
-    if (existing) {
-      db.prepare('UPDATE users SET role = ?, plan = ? WHERE email = ?').run('admin', 'pro', admin.email);
+    const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [admin.email]);
+    if (rows[0]) {
+      await pool.query('UPDATE users SET role = $1, plan = $2 WHERE email = $3', ['admin', 'pro', admin.email]);
     } else {
-      // Criar admin com senha padrão se não existe
-      const defaultPassword = admin.email === 'pati_martel@hotmail.com' ? 'Admin@123' : 'Admin@123';
-      const hashedPassword = bcrypt.hashSync(defaultPassword, 12);
-      const result = db.prepare(
-        'INSERT INTO users (email, password, name, plan, role, active) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(admin.email, hashedPassword, admin.name, 'pro', 'admin', 1);
-      db.prepare('INSERT INTO settings (user_id) VALUES (?)').run(result.lastInsertRowid);
-      console.log(`[Admin] Criado admin: ${admin.email}`);
+      const hashed = await bcrypt.hash('Admin@123', 12);
+      const { rows: inserted } = await pool.query(
+        'INSERT INTO users (email, password, name, plan, role, active) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+        [admin.email, hashed, admin.name, 'pro', 'admin', 1]
+      );
+      await pool.query(
+        'INSERT INTO settings (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING',
+        [inserted[0].id]
+      );
+      console.log(`[Admin] Criado: ${admin.email}`);
     }
   }
 
-  const rafael = db.prepare(`SELECT role FROM users WHERE email = 'rafsanchez2@hotmail.com'`).get();
-  console.log('[Admin] Rafael role:', rafael?.role ?? 'usuário não criado ainda');
-
-  console.log('[DB] Migrations executed successfully');
+  console.log('[DB] Migrations executadas com sucesso');
 }
 
 module.exports = { runMigrations };

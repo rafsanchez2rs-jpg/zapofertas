@@ -4,7 +4,7 @@ const PLANS = require('../config/plans');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
 
-function authenticate(req, res, next) {
+async function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Token de autenticação obrigatório' });
@@ -13,17 +13,19 @@ function authenticate(req, res, next) {
   try {
     const token = authHeader.split(' ')[1];
     const payload = jwt.verify(token, JWT_SECRET);
-    const db = getDb();
-    const user = db
-      .prepare('SELECT id, email, name, plan, role, active, daily_sends, last_send_date FROM users WHERE id = ?')
-      .get(payload.userId);
+    const pool = getDb();
+    const { rows } = await pool.query(
+      'SELECT id, email, name, plan, role, active, daily_sends, last_send_date FROM users WHERE id = $1',
+      [payload.userId]
+    );
+    const user = rows[0];
 
     if (!user) return res.status(401).json({ error: 'Usuário não encontrado' });
     if (!user.active) return res.status(403).json({ error: 'Conta desativada' });
 
     req.user = user;
     next();
-  } catch (err) {
+  } catch {
     return res.status(401).json({ error: 'Token inválido ou expirado' });
   }
 }
@@ -37,13 +39,9 @@ function requireAdmin(req, res, next) {
 
 function planLimiter(req, res, next) {
   const user = req.user;
-
-  // admin e pro: sem limites
-  if (user.plan === 'pro' || user.plan === 'admin' || user.role === 'admin') return next();
+  if (user.plan === 'pro' || user.role === 'admin') return next();
 
   const plan = PLANS[user.plan] || PLANS.free;
-
-  // Reset daily counter if last send was not today
   const today = new Date().toISOString().split('T')[0];
   const effectiveSends = user.last_send_date === today ? user.daily_sends : 0;
 

@@ -5,219 +5,185 @@ const waManager = require('../services/whatsappClient');
 
 const router = express.Router();
 
-function nowISO() {
-  return new Date().toISOString();
-}
-
 async function executeCampaign(campaignId) {
-  const db = getDb();
-  const campaign = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(campaignId);
+  const pool = getDb();
+  const { rows: campRows } = await pool.query('SELECT * FROM campaigns WHERE id = $1', [campaignId]);
+  const campaign = campRows[0];
   if (!campaign) return;
 
-  const groups = db
-    .prepare(`
-      SELECT cg.*, g.wa_group_id, g.name as group_name
-      FROM campaign_groups cg
-      JOIN groups g ON cg.group_id = g.id
-      WHERE cg.campaign_id = ? AND cg.status = 'pending'
-    `)
-    .all(campaignId);
+  const { rows: groups } = await pool.query(`
+    SELECT cg.*, g.wa_group_id, g.name as group_name
+    FROM campaign_groups cg
+    JOIN groups g ON cg.group_id = g.id
+    WHERE cg.campaign_id = $1 AND cg.status = 'pending'
+  `, [campaignId]);
 
   if (groups.length === 0) return;
 
-  const settings = db
-    .prepare('SELECT * FROM settings WHERE user_id = ?')
-    .get(campaign.user_id);
-
-  const delayMs = Math.max(settings?.delay_between_sends || 5000, 5000);
+  const { rows: settingsRows } = await pool.query('SELECT * FROM settings WHERE user_id = $1', [campaign.user_id]);
+  const settings = settingsRows[0];
   const imageUrl = settings?.send_image ? campaign.image_url : null;
 
-  db.prepare("UPDATE campaigns SET status = 'sending', sent_at = ? WHERE id = ?").run(
-    nowISO(), campaignId
-  );
-
-  const updateGroup = db.prepare(`
-    UPDATE campaign_groups SET status = ?, sent_at = ?, error_message = ?
-    WHERE campaign_id = ? AND group_id = ?
-  `);
+  await pool.query("UPDATE campaigns SET status = 'sending', sent_at = NOW() WHERE id = $1", [campaignId]);
 
   let successCount = 0;
   let failedCount = 0;
 
-  try {
-    for (let i = 0; i < groups.length; i++) {
-      const g = groups[i];
-      const result = await waManager.sendMessage(g.wa_group_id, campaign.message, imageUrl);
-      if (result.success) {
-        successCount++;
-        updateGroup.run('sent', nowISO(), null, campaignId, g.group_id);
-        console.log(`[Campaign:${campaignId}] ✅ "${g.group_name}" enviado`);
-      } else {
-        failedCount++;
-        updateGroup.run('failed', nowISO(), result.error || null, campaignId, g.group_id);
-        console.error(`[Campaign:${campaignId}] ❌ "${g.group_name}" falhou: ${result.error}`);
-      }
-      if (i < groups.length - 1) {
-        const delay = 6000 + Math.random() * 6000;
-        await new Promise((r) => setTimeout(r, delay));
-      }
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    const result = await waManager.sendMessage(g.wa_group_id, campaign.message, imageUrl);
+    if (result.success) {
+      successCount++;
+      await pool.query(
+        "UPDATE campaign_groups SET status = 'sent', sent_at = NOW(), error_message = NULL WHERE campaign_id = $1 AND group_id = $2",
+        [campaignId, g.group_id]
+      );
+      console.log(`[Campaign:${campaignId}] ✅ "${g.group_name}" enviado`);
+    } else {
+      failedCount++;
+      await pool.query(
+        "UPDATE campaign_groups SET status = 'failed', sent_at = NOW(), error_message = $1 WHERE campaign_id = $2 AND group_id = $3",
+        [result.error || null, campaignId, g.group_id]
+      );
+      console.error(`[Campaign:${campaignId}] ❌ "${g.group_name}" falhou: ${result.error}`);
     }
-
-    const finalStatus = failedCount === 0 ? 'sent' : successCount > 0 ? 'partial' : 'failed';
-    db.prepare("UPDATE campaigns SET status = ? WHERE id = ?").run(finalStatus, campaignId);
-  } catch (err) {
-    console.error(`[Campaign:${campaignId}] Erro inesperado:`, err);
-    db.prepare("UPDATE campaigns SET status = 'failed' WHERE id = ?").run(campaignId);
-    throw err;
+    if (i < groups.length - 1) {
+      const delay = 6000 + Math.random() * 6000;
+      await new Promise((r) => setTimeout(r, delay));
+    }
   }
+
+  const finalStatus = failedCount === 0 ? 'sent' : successCount > 0 ? 'partial' : 'failed';
+  await pool.query('UPDATE campaigns SET status = $1 WHERE id = $2', [finalStatus, campaignId]);
 }
 
 // GET /api/campaigns
-router.get('/', authenticate, (req, res) => {
-  const db = getDb();
-  const { page = 1, limit = 20, platform, status } = req.query;
-  const offset = (Number(page) - 1) * Number(limit);
+router.get('/', authenticate, async (req, res) => {
+  try {
+    const pool = getDb();
+    const { page = 1, limit = 20, platform, status } = req.query;
+    const offset = (Number(page) - 1) * Number(limit);
 
-  let where = 'WHERE c.user_id = ?';
-  const params = [req.user.id];
+    let where = 'WHERE c.user_id = $1';
+    const params = [req.user.id];
+    let idx = 2;
 
-  if (platform) { where += ' AND c.platform = ?'; params.push(platform); }
-  if (status) { where += ' AND c.status = ?'; params.push(status); }
+    if (platform) { where += ` AND c.platform = $${idx++}`; params.push(platform); }
+    if (status) { where += ` AND c.status = $${idx++}`; params.push(status); }
 
-  const total = db.prepare(`SELECT COUNT(*) as count FROM campaigns c ${where}`).get(...params).count;
+    const { rows: countRows } = await pool.query(`SELECT COUNT(*) as count FROM campaigns c ${where}`, params);
+    const total = parseInt(countRows[0].count);
 
-  const campaigns = db
-    .prepare(`
+    const { rows: campaigns } = await pool.query(`
       SELECT c.*,
         (SELECT COUNT(*) FROM campaign_groups cg WHERE cg.campaign_id = c.id AND cg.status = 'sent') as groups_sent,
         (SELECT COUNT(*) FROM campaign_groups cg WHERE cg.campaign_id = c.id) as groups_total
       FROM campaigns c
       ${where}
       ORDER BY
-        CASE WHEN c.status = 'scheduled' AND c.scheduled_at > datetime('now') THEN 0 ELSE 1 END ASC,
+        CASE WHEN c.status = 'scheduled' AND c.scheduled_at > NOW() THEN 0 ELSE 1 END ASC,
         c.created_at DESC
-      LIMIT ? OFFSET ?
-    `)
-    .all(...params, Number(limit), offset);
+      LIMIT $${idx++} OFFSET $${idx++}
+    `, [...params, Number(limit), offset]);
 
-  res.json({ campaigns, total, page: Number(page), limit: Number(limit) });
+    res.json({ campaigns, total, page: Number(page), limit: Number(limit) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // GET /api/campaigns/stats
-router.get('/stats', authenticate, (req, res) => {
-  const db = getDb();
-  const userId = req.user.id;
-
-  // Subquery de reset: apenas campanhas após o último reset do dashboard
-  const resetFilter = `AND created_at > (SELECT COALESCE(reset_at, '2000-01-01') FROM dashboard_reset WHERE user_id = ?)`;
-
-  const today = db.prepare(`
-    SELECT COUNT(*) as count FROM campaigns
-    WHERE user_id = ? AND date(created_at) = date('now') AND status IN ('sent','partial') ${resetFilter}
-  `).get(userId, userId);
-
-  const week = db.prepare(`
-    SELECT COUNT(*) as count FROM campaigns
-    WHERE user_id = ? AND created_at >= datetime('now', '-7 days') AND status IN ('sent','partial') ${resetFilter}
-  `).get(userId, userId);
-
-  const month = db.prepare(`
-    SELECT COUNT(*) as count FROM campaigns
-    WHERE user_id = ? AND created_at >= datetime('now', '-30 days') AND status IN ('sent','partial') ${resetFilter}
-  `).get(userId, userId);
-
-  const last7Days = db.prepare(`
-    SELECT date(created_at) as day, COUNT(*) as count
-    FROM campaigns
-    WHERE user_id = ? AND created_at >= datetime('now', '-7 days') AND status IN ('sent','partial') ${resetFilter}
-    GROUP BY date(created_at)
-    ORDER BY day ASC
-  `).all(userId, userId);
-
-  const last14Days = db.prepare(`
-    SELECT date(created_at) as day, COUNT(*) as count
-    FROM campaigns
-    WHERE user_id = ? AND created_at >= datetime('now', '-14 days') AND status IN ('sent','partial') ${resetFilter}
-    GROUP BY date(created_at)
-    ORDER BY day ASC
-  `).all(userId, userId);
-
-  const lastAd = db.prepare(`
-    SELECT * FROM campaigns WHERE user_id = ? ORDER BY created_at DESC LIMIT 1
-  `).get(userId);
-
-  const activeGroups = db.prepare(`
-    SELECT COUNT(*) as count FROM groups WHERE user_id = ? AND active = 1
-  `).get(userId);
-
-  const successRateRow = db.prepare(`
-    SELECT
-      COUNT(*) as total,
-      SUM(CASE WHEN status IN ('sent','partial') THEN 1 ELSE 0 END) as success
-    FROM campaigns WHERE user_id = ? ${resetFilter}
-  `).get(userId, userId);
-  const successRate = successRateRow.total > 0
-    ? Math.round((successRateRow.success / successRateRow.total) * 100)
-    : 0;
-
-  const topProducts = db.prepare(`
-    SELECT product_name, platform, COUNT(*) as total, MAX(created_at) as last_sent
-    FROM campaigns
-    WHERE user_id = ? AND status IN ('sent','partial') ${resetFilter}
-    GROUP BY product_name
-    ORDER BY total DESC LIMIT 5
-  `).all(userId, userId);
-
-  const topGroups = db.prepare(`
-    SELECT cg.group_name, COUNT(*) as total, MAX(cg.sent_at) as last_sent
-    FROM campaign_groups cg
-    JOIN campaigns c ON cg.campaign_id = c.id
-    WHERE c.user_id = ? AND cg.status = 'sent' ${resetFilter.replace('created_at', 'c.created_at').replace('user_id = ?', 'c.user_id = ?')}
-    GROUP BY cg.group_name
-    ORDER BY total DESC LIMIT 5
-  `).all(userId, userId);
-
-  res.json({
-    today: today.count,
-    week: week.count,
-    month: month.count,
-    last7Days,
-    last14Days,
-    lastAd,
-    activeGroups: activeGroups.count,
-    successRate,
-    topProducts,
-    topGroups,
-  });
-});
-
-// GET /api/campaigns/history/debug
-router.get('/history/debug', authenticate, (req, res) => {
-  const db = getDb();
-  const rows = db.prepare(
-    'SELECT id, status, platform, product_name FROM campaigns WHERE user_id = ? LIMIT 20'
-  ).all(req.user.id);
-  res.json(rows);
-});
-
-// DELETE /api/campaigns/history/all
-router.delete('/history/all', authenticate, (req, res) => {
+router.get('/stats', authenticate, async (req, res) => {
   try {
-    const db = getDb();
-    db.prepare(
-      'DELETE FROM campaign_groups WHERE campaign_id IN (SELECT id FROM campaigns WHERE user_id = ?)'
-    ).run(req.user.id);
-    db.prepare('DELETE FROM campaigns WHERE user_id = ?').run(req.user.id);
-    res.json({ success: true });
+    const pool = getDb();
+    const userId = req.user.id;
+
+    const { rows: resetRows } = await pool.query(
+      'SELECT reset_at FROM dashboard_reset WHERE user_id = $1', [userId]
+    );
+    const resetAt = resetRows[0]?.reset_at || new Date('2000-01-01');
+
+    const { rows: todayRows } = await pool.query(`
+      SELECT COUNT(*) as count FROM campaigns
+      WHERE user_id = $1 AND created_at::date = CURRENT_DATE AND status IN ('sent','partial') AND created_at > $2
+    `, [userId, resetAt]);
+
+    const { rows: weekRows } = await pool.query(`
+      SELECT COUNT(*) as count FROM campaigns
+      WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '7 days' AND status IN ('sent','partial') AND created_at > $2
+    `, [userId, resetAt]);
+
+    const { rows: monthRows } = await pool.query(`
+      SELECT COUNT(*) as count FROM campaigns
+      WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '30 days' AND status IN ('sent','partial') AND created_at > $2
+    `, [userId, resetAt]);
+
+    const { rows: last7Days } = await pool.query(`
+      SELECT created_at::date as day, COUNT(*) as count
+      FROM campaigns
+      WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '7 days' AND status IN ('sent','partial') AND created_at > $2
+      GROUP BY created_at::date ORDER BY day ASC
+    `, [userId, resetAt]);
+
+    const { rows: last14Days } = await pool.query(`
+      SELECT created_at::date as day, COUNT(*) as count
+      FROM campaigns
+      WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '14 days' AND status IN ('sent','partial') AND created_at > $2
+      GROUP BY created_at::date ORDER BY day ASC
+    `, [userId, resetAt]);
+
+    const { rows: lastAdRows } = await pool.query(
+      'SELECT * FROM campaigns WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1', [userId]
+    );
+
+    const { rows: activeGroupRows } = await pool.query(
+      'SELECT COUNT(*) as count FROM groups WHERE user_id = $1 AND active = 1', [userId]
+    );
+
+    const { rows: rateRows } = await pool.query(`
+      SELECT COUNT(*) as total,
+        SUM(CASE WHEN status IN ('sent','partial') THEN 1 ELSE 0 END) as success
+      FROM campaigns WHERE user_id = $1 AND created_at > $2
+    `, [userId, resetAt]);
+    const successRate = parseInt(rateRows[0].total) > 0
+      ? Math.round((parseInt(rateRows[0].success) / parseInt(rateRows[0].total)) * 100) : 0;
+
+    const { rows: topProducts } = await pool.query(`
+      SELECT product_name, platform, COUNT(*) as total, MAX(created_at) as last_sent
+      FROM campaigns
+      WHERE user_id = $1 AND status IN ('sent','partial') AND created_at > $2
+      GROUP BY product_name, platform ORDER BY total DESC LIMIT 5
+    `, [userId, resetAt]);
+
+    const { rows: topGroups } = await pool.query(`
+      SELECT cg.group_name, COUNT(*) as total, MAX(cg.sent_at) as last_sent
+      FROM campaign_groups cg
+      JOIN campaigns c ON cg.campaign_id = c.id
+      WHERE c.user_id = $1 AND cg.status = 'sent' AND c.created_at > $2
+      GROUP BY cg.group_name ORDER BY total DESC LIMIT 5
+    `, [userId, resetAt]);
+
+    res.json({
+      today: parseInt(todayRows[0].count),
+      week: parseInt(weekRows[0].count),
+      month: parseInt(monthRows[0].count),
+      last7Days,
+      last14Days,
+      lastAd: lastAdRows[0] || null,
+      activeGroups: parseInt(activeGroupRows[0].count),
+      successRate,
+      topProducts,
+      topGroups,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // GET /api/campaigns/history
-router.get('/history', authenticate, (req, res) => {
+router.get('/history', authenticate, async (req, res) => {
   try {
-    const db = getDb();
+    const pool = getDb();
     const userId = req.user.id;
     const status = req.query.status || '';
     const platform = req.query.platform || '';
@@ -225,69 +191,84 @@ router.get('/history', authenticate, (req, res) => {
     let query = `SELECT *,
       (SELECT COUNT(*) FROM campaign_groups WHERE campaign_id = campaigns.id) as groups_total,
       (SELECT COUNT(*) FROM campaign_groups WHERE campaign_id = campaigns.id AND status = 'sent') as groups_sent
-      FROM campaigns WHERE user_id = ?`;
+      FROM campaigns WHERE user_id = $1`;
     const params = [userId];
+    let idx = 2;
 
     if (status && status !== 'all') {
-      query += ` AND status = ?`;
+      query += ` AND status = $${idx++}`;
       params.push(status);
     }
     if (platform && platform !== 'all') {
       if (platform === 'mercadolivre') {
         query += ` AND (platform = 'mercadolivre' OR product_url LIKE '%mercadolivre%' OR product_url LIKE '%mercadolibre%' OR product_url LIKE '%meli.%' OR product_url LIKE '%/MLB%' OR product_url LIKE '%-MLB%')`;
       } else {
-        query += ` AND platform = ? AND product_url NOT LIKE '%mercadolivre%' AND product_url NOT LIKE '%mercadolibre%' AND product_url NOT LIKE '%meli.%' AND product_url NOT LIKE '%/MLB%' AND product_url NOT LIKE '%-MLB%'`;
+        query += ` AND platform = $${idx++} AND product_url NOT LIKE '%mercadolivre%' AND product_url NOT LIKE '%mercadolibre%' AND product_url NOT LIKE '%meli.%' AND product_url NOT LIKE '%/MLB%' AND product_url NOT LIKE '%-MLB%'`;
         params.push(platform);
       }
     }
+    query += ' ORDER BY created_at DESC';
 
-    query += ` ORDER BY created_at DESC`;
-
-    const campaigns = db.prepare(query).all(...params);
+    const { rows: campaigns } = await pool.query(query, params);
     res.json({ campaigns });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/campaigns/:id
-router.get('/:id', authenticate, (req, res) => {
-  const db = getDb();
-  const campaign = db
-    .prepare('SELECT * FROM campaigns WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.user.id);
-
-  if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
-
-  const groups = db
-    .prepare('SELECT * FROM campaign_groups WHERE campaign_id = ?')
-    .all(req.params.id);
-
-  res.json({ campaign, groups });
+// DELETE /api/campaigns/history/all
+router.delete('/history/all', authenticate, async (req, res) => {
+  try {
+    const pool = getDb();
+    await pool.query(
+      'DELETE FROM campaign_groups WHERE campaign_id IN (SELECT id FROM campaigns WHERE user_id = $1)',
+      [req.user.id]
+    );
+    await pool.query('DELETE FROM campaigns WHERE user_id = $1', [req.user.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// POST /api/campaigns — create and optionally dispatch
+// GET /api/campaigns/:id
+router.get('/:id', authenticate, async (req, res) => {
+  try {
+    const pool = getDb();
+    const { rows: campRows } = await pool.query(
+      'SELECT * FROM campaigns WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    if (!campRows[0]) return res.status(404).json({ error: 'Campanha não encontrada' });
+
+    const { rows: groups } = await pool.query(
+      'SELECT * FROM campaign_groups WHERE campaign_id = $1',
+      [req.params.id]
+    );
+    res.json({ campaign: campRows[0], groups });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/campaigns
 router.post('/', authenticate, planLimiter, async (req, res) => {
   try {
     const {
       productName, platform, originalPrice, salePrice, pixPrice,
       discountPercent, couponValue, imageUrl, productUrl,
-      message, hasHeadline, headline,
-      groupIds, scheduledAt,
+      message, hasHeadline, headline, groupIds, scheduledAt,
     } = req.body;
 
     if (!productName || !message || !productUrl) {
       return res.status(400).json({ error: 'Campos obrigatórios: productName, message, productUrl' });
     }
-
     if (!groupIds || groupIds.length === 0) {
       return res.status(400).json({ error: 'Selecione ao menos um grupo' });
     }
 
-    // Determinar se é agendamento futuro
     const isFutureSchedule = scheduledAt && new Date(scheduledAt) > new Date();
 
-    // Verificar WhatsApp apenas para disparos imediatos
     if (!isFutureSchedule) {
       const { status } = waManager.getStatus();
       if (status !== 'ready') {
@@ -298,62 +279,56 @@ router.post('/', authenticate, planLimiter, async (req, res) => {
       }
     }
 
-    const db = getDb();
-
-    const placeholders = groupIds.map(() => '?').join(',');
-    const groups = db
-      .prepare(`SELECT * FROM groups WHERE id IN (${placeholders}) AND user_id = ?`)
-      .all(...groupIds, req.user.id);
-
-    if (groups.length === 0) {
-      return res.status(400).json({ error: 'Nenhum grupo válido selecionado' });
-    }
+    const pool = getDb();
+    const { rows: groups } = await pool.query(
+      'SELECT * FROM groups WHERE id = ANY($1) AND user_id = $2',
+      [groupIds, req.user.id]
+    );
+    if (groups.length === 0) return res.status(400).json({ error: 'Nenhum grupo válido selecionado' });
 
     const status = isFutureSchedule ? 'scheduled' : 'pending';
-
-    const result = db.prepare(`
+    const { rows: inserted } = await pool.query(`
       INSERT INTO campaigns (user_id, product_name, platform, original_price, sale_price, pix_price,
-        discount_percent, coupon_value, image_url, product_url, message, has_headline, headline, status, scheduled_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+        discount_percent, coupon_value, image_url, product_url, message, has_headline, headline, status, scheduled_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id
+    `, [
       req.user.id, productName, platform || 'shopee',
       originalPrice || null, salePrice || null, pixPrice || null,
       discountPercent || null, couponValue || null, imageUrl || null,
       productUrl, message, hasHeadline ? 1 : 0, headline || null,
-      status, isFutureSchedule ? new Date(scheduledAt).toISOString() : null, nowISO()
-    );
+      status, isFutureSchedule ? new Date(scheduledAt).toISOString() : null,
+    ]);
+    const campaignId = inserted[0].id;
 
-    const campaignId = result.lastInsertRowid;
-
-    const insertGroup = db.prepare(`
-      INSERT INTO campaign_groups (campaign_id, group_id, wa_group_id, group_name, status)
-      VALUES (?, ?, ?, ?, 'pending')
-    `);
-    const insertGroups = db.transaction(() => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
       for (const g of groups) {
-        insertGroup.run(campaignId, g.id, g.wa_group_id, g.name);
+        await client.query(
+          "INSERT INTO campaign_groups (campaign_id, group_id, wa_group_id, group_name, status) VALUES ($1, $2, $3, $4, 'pending')",
+          [campaignId, g.id, g.wa_group_id, g.name]
+        );
       }
-    });
-    insertGroups();
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
 
-    // Atualiza contador diário apenas para disparos imediatos
     if (!isFutureSchedule) {
-      db.prepare(`
-        UPDATE users SET
-          daily_sends = CASE WHEN last_send_date = date('now') THEN daily_sends + 1 ELSE 1 END,
-          last_send_date = date('now')
-        WHERE id = ?
-      `).run(req.user.id);
+      const today = new Date().toISOString().split('T')[0];
+      const newSends = req.user.last_send_date === today ? (req.user.daily_sends || 0) + 1 : 1;
+      await pool.query('UPDATE users SET daily_sends = $1, last_send_date = $2 WHERE id = $3', [newSends, today, req.user.id]);
     }
 
     if (isFutureSchedule) {
-      console.log(`[Campaigns] Campanha ${campaignId} agendada para ${scheduledAt}`);
       return res.status(201).json({ campaignId, status: 'scheduled', scheduledAt });
     }
 
-    // Disparo imediato
     res.status(201).json({ campaignId, status: 'dispatching' });
-    executeCampaign(campaignId).catch(err => {
+    executeCampaign(campaignId).catch((err) => {
       console.error(`[Campaigns] Execute error for ${campaignId}:`, err);
     });
   } catch (err) {
@@ -363,42 +338,47 @@ router.post('/', authenticate, planLimiter, async (req, res) => {
 });
 
 // PATCH /api/campaigns/:id/cancel
-router.patch('/:id/cancel', authenticate, (req, res) => {
-  const db = getDb();
-  const campaign = db
-    .prepare('SELECT * FROM campaigns WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.user.id);
-
-  if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
-  if (campaign.status !== 'scheduled') {
-    return res.status(400).json({ error: 'Apenas campanhas agendadas podem ser canceladas' });
+router.patch('/:id/cancel', authenticate, async (req, res) => {
+  try {
+    const pool = getDb();
+    const { rows } = await pool.query(
+      'SELECT * FROM campaigns WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Campanha não encontrada' });
+    if (rows[0].status !== 'scheduled') {
+      return res.status(400).json({ error: 'Apenas campanhas agendadas podem ser canceladas' });
+    }
+    await pool.query("UPDATE campaigns SET status = 'cancelled' WHERE id = $1", [req.params.id]);
+    res.json({ message: 'Agendamento cancelado' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-
-  db.prepare("UPDATE campaigns SET status = 'cancelled' WHERE id = ?").run(req.params.id);
-  res.json({ message: 'Agendamento cancelado' });
 });
 
 // POST /api/campaigns/:id/resend
 router.post('/:id/resend', authenticate, planLimiter, async (req, res) => {
-  const db = getDb();
-  const campaign = db
-    .prepare('SELECT * FROM campaigns WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.user.id);
+  try {
+    const pool = getDb();
+    const { rows } = await pool.query(
+      'SELECT * FROM campaigns WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Campanha não encontrada' });
 
-  if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
+    await pool.query(
+      "UPDATE campaign_groups SET status = 'pending', sent_at = NULL, error_message = NULL WHERE campaign_id = $1 AND status = 'failed'",
+      [req.params.id]
+    );
+    await pool.query("UPDATE campaigns SET status = 'pending' WHERE id = $1", [req.params.id]);
 
-  db.prepare(`
-    UPDATE campaign_groups SET status = 'pending', sent_at = NULL, error_message = NULL
-    WHERE campaign_id = ? AND status = 'failed'
-  `).run(req.params.id);
-
-  db.prepare("UPDATE campaigns SET status = 'pending' WHERE id = ?").run(req.params.id);
-
-  res.json({ message: 'Reenvio iniciado', campaignId: campaign.id });
-
-  executeCampaign(campaign.id).catch(err => {
-    console.error(`[Campaigns] Resend error for ${campaign.id}:`, err);
-  });
+    res.json({ message: 'Reenvio iniciado', campaignId: rows[0].id });
+    executeCampaign(rows[0].id).catch((err) => {
+      console.error(`[Campaigns] Resend error for ${rows[0].id}:`, err);
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
