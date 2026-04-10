@@ -104,26 +104,31 @@ router.get('/qrcode', authenticate, async (req, res) => {
   }
 });
 
+// GET /api/whatsapp/config — mostra configuração (sem chamar Evolution API)
+router.get('/config', async (req, res) => {
+  res.json({
+    evo_url: EVO_URL,
+    instance: INSTANCE,
+    key_set: !!EVO_KEY,
+    key_value: EVO_KEY ? EVO_KEY.substring(0, 4) + '****' : null,
+  });
+});
+
 // GET /api/whatsapp/debug — diagnóstico da Evolution API (sem auth para diagnóstico)
 router.get('/debug', async (req, res) => {
+  const quick = axios.create({ baseURL: EVO_URL, headers: { apikey: EVO_KEY }, timeout: 8000 });
   const out = { evo_url: EVO_URL, instance: INSTANCE, key_set: !!EVO_KEY };
   try {
-    const r = await evo.get('/instance/fetchInstances');
+    const r = await quick.get('/instance/fetchInstances');
     out.fetchInstances = { ok: true, count: Array.isArray(r.data) ? r.data.length : r.data };
   } catch (e) {
     out.fetchInstances = { ok: false, error: e.message, status: e.response?.status, data: e.response?.data };
   }
   try {
-    const r = await evoFast.get(`/instance/connectionState/${INSTANCE}`);
+    const r = await quick.get(`/instance/connectionState/${INSTANCE}`);
     out.connectionState = { ok: true, data: r.data };
   } catch (e) {
     out.connectionState = { ok: false, error: e.message, status: e.response?.status };
-  }
-  try {
-    const r = await evo.get(`/instance/connect/${INSTANCE}`);
-    out.connect = { ok: true, keys: Object.keys(r.data || {}), hasBase64: !!r.data?.base64, hasCode: !!r.data?.code };
-  } catch (e) {
-    out.connect = { ok: false, error: e.message, status: e.response?.status, data: e.response?.data };
   }
   res.json(out);
 });
