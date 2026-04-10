@@ -11,11 +11,11 @@ const EVO_URL  = process.env.EVOLUTION_API_URL  || 'http://localhost:8080';
 const EVO_KEY  = process.env.EVOLUTION_API_KEY  || 'zapofertas123';
 const INSTANCE = process.env.EVOLUTION_INSTANCE || 'zapofertas';
 
-// Timeout longo para acordar a Evolution API (free tier cold start ~60-90s)
+// Timeout longo para acordar a Evolution API (free tier cold start ~80-120s)
 const evo = axios.create({
   baseURL: EVO_URL,
   headers: { apikey: EVO_KEY },
-  timeout: 100000,
+  timeout: 150000, // 150s — margem para cold start lento
 });
 
 // Timeout curto para status (quando já está acordado)

@@ -9,7 +9,7 @@ const MAX_WAIT_SEC   = 240;   // desiste após 4 minutos (Evolution API cold sta
 // Axios dedicado para WhatsApp com timeout longo (Evolution API cold start ~90s no Render)
 const waApi = axios.create({
   baseURL: '/api',
-  timeout: 110000, // 110s — maior que o timeout do backend (100s)
+  timeout: 165000, // 165s — maior que o timeout do backend (150s) + margem
   headers: { 'Content-Type': 'application/json' },
 });
 waApi.interceptors.request.use((config) => {
