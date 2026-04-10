@@ -39,36 +39,54 @@ router.get('/status', authenticate, async (req, res) => {
 
 // GET /api/whatsapp/qrcode
 router.get('/qrcode', authenticate, async (req, res) => {
-  try {
-    // Garantir que a instância existe
-    const { data: instances } = await evo.get('/instance/fetchInstances');
-    const list = Array.isArray(instances) ? instances : [];
-    const found = list.find(
-      (i) => (i.name || i.instanceName || i.instance?.instanceName) === INSTANCE
-    );
-    if (!found) {
-      await evo.post('/instance/create', {
-        instanceName: INSTANCE,
-        qrcode: true,
-        integration: 'WHATSAPP-BAILEYS',
-      });
-    }
+  const MAX_RETRIES = 5;
+  const RETRY_DELAY = 8000;
 
-    // Buscar QR Code
-    const { data } = await evo.get(`/instance/connect/${INSTANCE}`);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-    if (data?.base64) {
-      return res.json({ qr: data.base64 });
-    }
-    if (data?.code) {
-      const qrBase64 = await QRCode.toDataURL(data.code);
-      return res.json({ qr: qrBase64 });
-    }
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      // Garantir que a instância existe
+      const { data: instances } = await evo.get('/instance/fetchInstances');
+      const list = Array.isArray(instances) ? instances : [];
+      const found = list.find(
+        (i) => (i.name || i.instanceName || i.instance?.instanceName) === INSTANCE
+      );
+      if (!found) {
+        await evo.post('/instance/create', {
+          instanceName: INSTANCE,
+          qrcode: true,
+          integration: 'WHATSAPP-BAILEYS',
+        });
+        await sleep(2000);
+      }
 
-    res.status(404).json({ error: 'QR Code não disponível' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+      // Buscar QR Code
+      const { data } = await evo.get(`/instance/connect/${INSTANCE}`);
+
+      if (data?.base64) {
+        return res.json({ qr: data.base64 });
+      }
+      if (data?.code) {
+        const qrBase64 = await QRCode.toDataURL(data.code);
+        return res.json({ qr: qrBase64 });
+      }
+
+      // QR ainda não disponível — aguarda e tenta de novo
+      if (attempt < MAX_RETRIES) {
+        await sleep(RETRY_DELAY);
+        continue;
+      }
+    } catch (err) {
+      if (attempt < MAX_RETRIES) {
+        await sleep(RETRY_DELAY);
+        continue;
+      }
+      return res.status(500).json({ error: `Serviço WhatsApp indisponível: ${err.message}` });
+    }
   }
+
+  res.status(404).json({ error: 'QR Code não disponível. Tente novamente.' });
 });
 
 // POST /api/whatsapp/connect

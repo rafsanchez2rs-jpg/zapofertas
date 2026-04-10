@@ -1,9 +1,22 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { X, RefreshCw, Wifi, WifiOff, Loader, Clock, AlertTriangle } from 'lucide-react';
-import api from '../services/api';
+import axios from 'axios';
 
-const POLL_MS      = 4000; // intervalo de polling
-const QR_TIMEOUT_SEC = 60; // QR expira em 60 segundos
+const POLL_MS        = 6000;  // intervalo de polling
+const QR_TIMEOUT_SEC = 60;    // QR expira em 60 segundos
+const MAX_WAIT_SEC   = 120;   // desiste após 2 minutos
+
+// Axios dedicado para WhatsApp com timeout longo (Evolution API cold start)
+const waApi = axios.create({
+  baseURL: '/api',
+  timeout: 70000,
+  headers: { 'Content-Type': 'application/json' },
+});
+waApi.interceptors.request.use((config) => {
+  const token = localStorage.getItem('accessToken');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
 function useCountdown(targetMs) {
   const [remaining, setRemaining] = useState(
@@ -24,14 +37,26 @@ function useCountdown(targetMs) {
   return remaining;
 }
 
+const WARM_MESSAGES = [
+  'Obtendo QR Code...',
+  'Iniciando serviço WhatsApp...',
+  'Aguardando Evolution API...',
+  'Pode levar até 1 minuto na primeira vez...',
+  'Ainda aguardando, quase lá...',
+];
+
 export default function QRCodeModal({ onClose, onConnected }) {
   const [status, setStatus]           = useState('connecting');
   const [qrImage, setQrImage]         = useState(null);
   const [error, setError]             = useState(null);
   const [qrExpiresAt, setQrExpiresAt] = useState(null);
   const [qrExpired, setQrExpired]     = useState(false);
+  const [warmMsg, setWarmMsg]         = useState(WARM_MESSAGES[0]);
+  const [attemptCount, setAttemptCount] = useState(0);
   const pollRef    = useRef(null);
   const qrTimerRef = useRef(null);
+  const startedAt  = useRef(null);
+  const attemptsRef = useRef(0);
 
   const qrCountdown = useCountdown(qrExpiresAt);
 
@@ -54,24 +79,40 @@ export default function QRCodeModal({ onClose, onConnected }) {
     setQrImage(null);
     setQrExpired(false);
     setQrExpiresAt(null);
+    attemptsRef.current = 0;
+    startedAt.current = Date.now();
+    setAttemptCount(0);
+    setWarmMsg(WARM_MESSAGES[0]);
 
-    // Busca QR inicial imediatamente
     const fetchQr = async () => {
+      attemptsRef.current += 1;
+      setAttemptCount(attemptsRef.current);
+      const msgIdx = Math.min(attemptsRef.current - 1, WARM_MESSAGES.length - 1);
+      setWarmMsg(WARM_MESSAGES[msgIdx]);
+
+      // Desiste após MAX_WAIT_SEC
+      if (Date.now() - startedAt.current > MAX_WAIT_SEC * 1000) {
+        stopPolling();
+        setStatus('error');
+        setError('Tempo esgotado. O serviço WhatsApp pode estar indisponível. Tente novamente.');
+        return;
+      }
+
       try {
-        const { data } = await api.get('/whatsapp/qrcode');
+        const { data } = await waApi.get('/whatsapp/qrcode');
         if (data?.qr) {
           setQrImage(data.qr);
-          if (status !== 'qr') startQrTimer();
+          startQrTimer();
           setStatus('qr');
         }
       } catch {
-        // ignora — tenta no próximo ciclo
+        // continua tentando
       }
     };
 
     const checkStatus = async () => {
       try {
-        const { data } = await api.get('/whatsapp/status');
+        const { data } = await waApi.get('/whatsapp/status');
         if (data?.status === 'ready') {
           stopPolling();
           setStatus('ready');
@@ -87,7 +128,6 @@ export default function QRCodeModal({ onClose, onConnected }) {
 
     await fetchQr();
 
-    // Polling contínuo
     pollRef.current = setInterval(async () => {
       const connected = await checkStatus();
       if (!connected) await fetchQr();
@@ -129,10 +169,12 @@ export default function QRCodeModal({ onClose, onConnected }) {
           {status === 'connecting' && (
             <div className="flex flex-col items-center gap-3 py-8">
               <Loader size={32} className="text-accent animate-spin" />
-              <p className="text-text-secondary text-sm">Obtendo QR Code...</p>
-              <p className="text-text-secondary text-xs text-center opacity-70">
-                Não feche esta janela durante a conexão
-              </p>
+              <p className="text-text-secondary text-sm text-center">{warmMsg}</p>
+              {attemptCount > 1 && (
+                <p className="text-text-secondary text-xs text-center opacity-60">
+                  Tentativa {attemptCount} — aguarde, o serviço está iniciando
+                </p>
+              )}
             </div>
           )}
 
