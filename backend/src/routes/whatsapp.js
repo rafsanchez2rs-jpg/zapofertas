@@ -11,25 +11,31 @@ const EVO_URL  = process.env.EVOLUTION_API_URL  || 'http://localhost:8080';
 const EVO_KEY  = process.env.EVOLUTION_API_KEY  || 'zapofertas123';
 const INSTANCE = process.env.EVOLUTION_INSTANCE || 'zapofertas';
 
+// Timeout longo para acordar a Evolution API (free tier cold start ~60-90s)
 const evo = axios.create({
   baseURL: EVO_URL,
   headers: { apikey: EVO_KEY },
-  timeout: 60000,
+  timeout: 100000,
 });
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Timeout curto para status (quando já está acordado)
+const evoFast = axios.create({
+  baseURL: EVO_URL,
+  headers: { apikey: EVO_KEY },
+  timeout: 10000,
+});
 
 // GET /api/whatsapp/status
 router.get('/status', authenticate, async (req, res) => {
   try {
-    const { data } = await evo.get('/instance/fetchInstances');
+    const { data } = await evoFast.get('/instance/fetchInstances');
     const list = Array.isArray(data) ? data : [];
     const inst = list.find(
       (i) => (i.name || i.instanceName || i.instance?.instanceName) === INSTANCE
     );
     if (!inst) return res.json({ status: 'disconnected' });
 
-    const stateRes = await evo.get(`/instance/connectionState/${INSTANCE}`);
+    const stateRes = await evoFast.get(`/instance/connectionState/${INSTANCE}`);
     const state = stateRes.data?.instance?.state || 'close';
     res.json({ status: state === 'open' ? 'ready' : 'disconnected' });
   } catch {
@@ -37,44 +43,38 @@ router.get('/status', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/whatsapp/qrcode — retries até Evolution API acordar
+// GET /api/whatsapp/qrcode
+// Uma tentativa por request — o frontend faz polling a cada 6s enquanto aguarda a Evolution API acordar
 router.get('/qrcode', authenticate, async (req, res) => {
-  const MAX_RETRIES = 6;
-  const RETRY_DELAY = 8000;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      // Garantir instância
-      const { data: instances } = await evo.get('/instance/fetchInstances');
-      const list = Array.isArray(instances) ? instances : [];
-      const found = list.find(
-        (i) => (i.name || i.instanceName || i.instance?.instanceName) === INSTANCE
-      );
-      if (!found) {
-        await evo.post('/instance/create', {
-          instanceName: INSTANCE,
-          qrcode: true,
-          integration: 'WHATSAPP-BAILEYS',
-        });
-        await sleep(3000);
-      }
-
-      const { data } = await evo.get(`/instance/connect/${INSTANCE}`);
-
-      if (data?.base64) return res.json({ qr: data.base64 });
-      if (data?.code) {
-        const qrBase64 = await QRCode.toDataURL(data.code);
-        return res.json({ qr: qrBase64 });
-      }
-
-      if (attempt < MAX_RETRIES) { await sleep(RETRY_DELAY); continue; }
-    } catch (err) {
-      if (attempt < MAX_RETRIES) { await sleep(RETRY_DELAY); continue; }
-      return res.status(500).json({ error: `Serviço WhatsApp indisponível: ${err.message}` });
+  try {
+    // Garante que a instância existe (acorda a Evolution API se necessário)
+    const { data: instances } = await evo.get('/instance/fetchInstances');
+    const list = Array.isArray(instances) ? instances : [];
+    const found = list.find(
+      (i) => (i.name || i.instanceName || i.instance?.instanceName) === INSTANCE
+    );
+    if (!found) {
+      await evo.post('/instance/create', {
+        instanceName: INSTANCE,
+        qrcode: true,
+        integration: 'WHATSAPP-BAILEYS',
+      });
+      await new Promise((r) => setTimeout(r, 3000));
     }
-  }
 
-  res.status(404).json({ error: 'QR Code não disponível. Tente novamente.' });
+    const { data } = await evo.get(`/instance/connect/${INSTANCE}`);
+
+    if (data?.base64) return res.json({ qr: data.base64 });
+    if (data?.code) {
+      const qrBase64 = await QRCode.toDataURL(data.code);
+      return res.json({ qr: qrBase64 });
+    }
+
+    res.status(202).json({ message: 'Aguardando QR Code' });
+  } catch (err) {
+    console.warn('[QR] Evolution API ainda acordando:', err.message);
+    res.status(503).json({ error: 'Serviço WhatsApp iniciando. Aguarde...' });
+  }
 });
 
 // POST /api/whatsapp/connect

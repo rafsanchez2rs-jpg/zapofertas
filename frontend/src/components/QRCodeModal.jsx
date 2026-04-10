@@ -105,8 +105,9 @@ export default function QRCodeModal({ onClose, onConnected }) {
           startQrTimer();
           setStatus('qr');
         }
+        // 202 = aguardando QR, 503 = Evolution API acordando — continua tentando
       } catch {
-        // continua tentando
+        // continua tentando (503, timeout, etc)
       }
     };
 
