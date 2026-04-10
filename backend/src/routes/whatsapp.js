@@ -85,28 +85,25 @@ router.get('/qrcode', authenticate, async (req, res) => {
       return res.json({ connected: true });
     }
 
-    // 5. Tenta obter QR via connect
+    // 5. Se "connecting", a instância está tentando restaurar sessão antiga.
+    //    Força logout para limpar sessão e gerar QR novo.
+    if (state === 'connecting' || state === 'close') {
+      console.log('[QR] Limpando sessão antiga para gerar QR novo...');
+      try {
+        await evoFast.delete(`/instance/logout/${INSTANCE}`);
+      } catch { /* pode falhar se já desconectado */ }
+      await new Promise((r) => setTimeout(r, 5000)); // aguarda Baileys resetar
+    }
+
+    // 6. Agora solicita QR
     try {
       const { data } = await evoFast.get(`/instance/connect/${INSTANCE}`);
       const qr = await extractQr(data);
       if (qr) return res.json({ qr });
-      console.log('[QR] connect retornou sem QR, estado:', state, 'keys:', Object.keys(data || {}));
+      console.log('[QR] connect retornou sem QR:', JSON.stringify(data));
     } catch (e) {
       console.log('[QR] connect falhou:', e.message);
     }
-
-    // 6. Sem QR: força logout/restart para gerar QR novo
-    console.log('[QR] Forçando logout para gerar QR novo');
-    try {
-      await evoFast.delete(`/instance/logout/${INSTANCE}`);
-    } catch { /* pode falhar se já desconectado */ }
-    await new Promise((r) => setTimeout(r, 2000));
-
-    try {
-      const { data: qrData } = await evoFast.get(`/instance/connect/${INSTANCE}`);
-      const qr = await extractQr(qrData);
-      if (qr) return res.json({ qr });
-    } catch { /* ignora */ }
 
     res.status(202).json({ message: 'Aguardando QR Code' });
   } catch (err) {
