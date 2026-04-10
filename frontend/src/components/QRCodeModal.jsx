@@ -2,14 +2,14 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { X, RefreshCw, Wifi, WifiOff, Loader, Clock, AlertTriangle } from 'lucide-react';
 import axios from 'axios';
 
-const POLL_MS        = 6000;  // intervalo de polling
+const POLL_MS        = 15000; // intervalo de polling (aguarda resposta longa do backend)
 const QR_TIMEOUT_SEC = 60;    // QR expira em 60 segundos
-const MAX_WAIT_SEC   = 120;   // desiste após 2 minutos
+const MAX_WAIT_SEC   = 240;   // desiste após 4 minutos (Evolution API cold start ~90s)
 
-// Axios dedicado para WhatsApp com timeout longo (Evolution API cold start)
+// Axios dedicado para WhatsApp com timeout longo (Evolution API cold start ~90s no Render)
 const waApi = axios.create({
   baseURL: '/api',
-  timeout: 70000,
+  timeout: 110000, // 110s — maior que o timeout do backend (100s)
   headers: { 'Content-Type': 'application/json' },
 });
 waApi.interceptors.request.use((config) => {
@@ -40,9 +40,10 @@ function useCountdown(targetMs) {
 const WARM_MESSAGES = [
   'Obtendo QR Code...',
   'Iniciando serviço WhatsApp...',
-  'Aguardando Evolution API...',
-  'Pode levar até 1 minuto na primeira vez...',
-  'Ainda aguardando, quase lá...',
+  'Aguardando Evolution API acordar...',
+  'Pode levar até 2 minutos na primeira vez...',
+  'Ainda aguardando — serviço iniciando...',
+  'Quase lá, aguarde mais um pouco...',
 ];
 
 export default function QRCodeModal({ onClose, onConnected }) {
