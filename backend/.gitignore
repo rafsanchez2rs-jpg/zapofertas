@@ -1,2 +1,6 @@
 firebase-key.json
+*firebase-adminsdk*.json
 .env
+node_modules/
+logs/
+data/

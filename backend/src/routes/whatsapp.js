@@ -47,6 +47,18 @@ router.get('/status', authenticate, async (req, res) => {
 // Uma tentativa por request — o frontend faz polling a cada 6s enquanto aguarda a Evolution API acordar
 router.get('/qrcode', authenticate, async (req, res) => {
   try {
+    // Verifica estado atual
+    let state = 'close';
+    try {
+      const stateRes = await evoFast.get(`/instance/connectionState/${INSTANCE}`);
+      state = stateRes.data?.instance?.state || 'close';
+    } catch { /* instância pode não existir ainda */ }
+
+    // Se já está conectado, informa o frontend
+    if (state === 'open') {
+      return res.json({ connected: true });
+    }
+
     // Garante que a instância existe (acorda a Evolution API se necessário)
     const { data: instances } = await evo.get('/instance/fetchInstances');
     const list = Array.isArray(instances) ? instances : [];
@@ -68,6 +80,21 @@ router.get('/qrcode', authenticate, async (req, res) => {
     if (data?.code) {
       const qrBase64 = await QRCode.toDataURL(data.code);
       return res.json({ qr: qrBase64 });
+    }
+
+    // Se o estado for 'connecting' por mais de 30s, força logout para gerar novo QR
+    if (state === 'connecting') {
+      console.log('[QR] Instância presa em connecting — forçando logout para novo QR');
+      try {
+        await evoFast.delete(`/instance/logout/${INSTANCE}`);
+        await new Promise((r) => setTimeout(r, 2000));
+        const { data: qrData } = await evo.get(`/instance/connect/${INSTANCE}`);
+        if (qrData?.base64) return res.json({ qr: qrData.base64 });
+        if (qrData?.code) {
+          const qrBase64 = await QRCode.toDataURL(qrData.code);
+          return res.json({ qr: qrBase64 });
+        }
+      } catch { /* ignora */ }
     }
 
     res.status(202).json({ message: 'Aguardando QR Code' });

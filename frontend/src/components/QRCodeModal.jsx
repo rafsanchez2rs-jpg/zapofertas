@@ -100,6 +100,14 @@ export default function QRCodeModal({ onClose, onConnected }) {
 
       try {
         const { data } = await waApi.get('/whatsapp/qrcode');
+        if (data?.connected) {
+          // Já conectado — fecha o modal
+          stopPolling();
+          setStatus('ready');
+          onConnected?.();
+          setTimeout(() => onClose?.(), 1500);
+          return;
+        }
         if (data?.qr) {
           setQrImage(data.qr);
           startQrTimer();
