@@ -72,7 +72,7 @@ router.get('/qrcode', authenticate, async (req, res) => {
       await new Promise((r) => setTimeout(r, 3000));
     }
 
-    // 3. Agora que Evo está acordado, verifica estado real
+    // 3. Verifica estado atual (Evo já está acordado)
     let state = 'close';
     try {
       const stateRes = await evoFast.get(`/instance/connectionState/${INSTANCE}`);
@@ -85,24 +85,37 @@ router.get('/qrcode', authenticate, async (req, res) => {
       return res.json({ connected: true });
     }
 
-    // 5. Se "connecting", a instância está tentando restaurar sessão antiga.
-    //    Força logout para limpar sessão e gerar QR novo.
-    if (state === 'connecting' || state === 'close') {
-      console.log('[QR] Limpando sessão antiga para gerar QR novo...');
+    // 5. Tenta QR direto primeiro (caso esteja em close limpo)
+    if (state === 'close') {
       try {
-        await evoFast.delete(`/instance/logout/${INSTANCE}`);
-      } catch { /* pode falhar se já desconectado */ }
-      await new Promise((r) => setTimeout(r, 5000)); // aguarda Baileys resetar
+        const { data } = await evoFast.get(`/instance/connect/${INSTANCE}`);
+        const qr = await extractQr(data);
+        if (qr) return res.json({ qr });
+      } catch { /* ignora */ }
     }
 
-    // 6. Agora solicita QR
+    // 6. Instância presa em "connecting" ou sem QR — deleta e recria do zero
+    //    Isso limpa a sessão salva no banco da Evolution API
+    console.log('[QR] Deletando instância para recriar do zero e gerar QR novo...');
+    try {
+      await evoFast.delete(`/instance/delete/${INSTANCE}`);
+    } catch { /* ignora */ }
+    await new Promise((r) => setTimeout(r, 3000));
+
+    await evo.post('/instance/create', {
+      instanceName: INSTANCE,
+      qrcode: true,
+      integration: 'WHATSAPP-BAILEYS',
+    });
+    await new Promise((r) => setTimeout(r, 3000));
+
     try {
       const { data } = await evoFast.get(`/instance/connect/${INSTANCE}`);
       const qr = await extractQr(data);
       if (qr) return res.json({ qr });
-      console.log('[QR] connect retornou sem QR:', JSON.stringify(data));
+      console.log('[QR] Após recriar, connect retornou:', JSON.stringify(data));
     } catch (e) {
-      console.log('[QR] connect falhou:', e.message);
+      console.log('[QR] connect após recriar falhou:', e.message);
     }
 
     res.status(202).json({ message: 'Aguardando QR Code' });
