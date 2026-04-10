@@ -43,29 +43,27 @@ router.get('/status', authenticate, async (req, res) => {
   }
 });
 
+// Extrai QR de uma resposta da Evolution API
+async function extractQr(data) {
+  if (!data) return null;
+  if (data.base64) return data.base64;
+  if (data.code) return QRCode.toDataURL(data.code);
+  return null;
+}
+
 // GET /api/whatsapp/qrcode
-// Uma tentativa por request — o frontend faz polling a cada 6s enquanto aguarda a Evolution API acordar
 router.get('/qrcode', authenticate, async (req, res) => {
   try {
-    // Verifica estado atual
-    let state = 'close';
-    try {
-      const stateRes = await evoFast.get(`/instance/connectionState/${INSTANCE}`);
-      state = stateRes.data?.instance?.state || 'close';
-    } catch { /* instância pode não existir ainda */ }
-
-    // Se já está conectado, informa o frontend
-    if (state === 'open') {
-      return res.json({ connected: true });
-    }
-
-    // Garante que a instância existe (acorda a Evolution API se necessário)
+    // 1. Acorda a Evolution API e busca instâncias (timeout longo = cold start)
     const { data: instances } = await evo.get('/instance/fetchInstances');
     const list = Array.isArray(instances) ? instances : [];
     const found = list.find(
       (i) => (i.name || i.instanceName || i.instance?.instanceName) === INSTANCE
     );
+
+    // 2. Cria instância se não existir
     if (!found) {
+      console.log('[QR] Criando instância nova:', INSTANCE);
       await evo.post('/instance/create', {
         instanceName: INSTANCE,
         qrcode: true,
@@ -74,28 +72,41 @@ router.get('/qrcode', authenticate, async (req, res) => {
       await new Promise((r) => setTimeout(r, 3000));
     }
 
-    const { data } = await evo.get(`/instance/connect/${INSTANCE}`);
+    // 3. Agora que Evo está acordado, verifica estado real
+    let state = 'close';
+    try {
+      const stateRes = await evoFast.get(`/instance/connectionState/${INSTANCE}`);
+      state = stateRes.data?.instance?.state || 'close';
+      console.log('[QR] Estado da instância:', state);
+    } catch { /* ignora */ }
 
-    if (data?.base64) return res.json({ qr: data.base64 });
-    if (data?.code) {
-      const qrBase64 = await QRCode.toDataURL(data.code);
-      return res.json({ qr: qrBase64 });
+    // 4. Já conectado?
+    if (state === 'open') {
+      return res.json({ connected: true });
     }
 
-    // Se o estado for 'connecting' por mais de 30s, força logout para gerar novo QR
-    if (state === 'connecting') {
-      console.log('[QR] Instância presa em connecting — forçando logout para novo QR');
-      try {
-        await evoFast.delete(`/instance/logout/${INSTANCE}`);
-        await new Promise((r) => setTimeout(r, 2000));
-        const { data: qrData } = await evo.get(`/instance/connect/${INSTANCE}`);
-        if (qrData?.base64) return res.json({ qr: qrData.base64 });
-        if (qrData?.code) {
-          const qrBase64 = await QRCode.toDataURL(qrData.code);
-          return res.json({ qr: qrBase64 });
-        }
-      } catch { /* ignora */ }
+    // 5. Tenta obter QR via connect
+    try {
+      const { data } = await evoFast.get(`/instance/connect/${INSTANCE}`);
+      const qr = await extractQr(data);
+      if (qr) return res.json({ qr });
+      console.log('[QR] connect retornou sem QR, estado:', state, 'keys:', Object.keys(data || {}));
+    } catch (e) {
+      console.log('[QR] connect falhou:', e.message);
     }
+
+    // 6. Sem QR: força logout/restart para gerar QR novo
+    console.log('[QR] Forçando logout para gerar QR novo');
+    try {
+      await evoFast.delete(`/instance/logout/${INSTANCE}`);
+    } catch { /* pode falhar se já desconectado */ }
+    await new Promise((r) => setTimeout(r, 2000));
+
+    try {
+      const { data: qrData } = await evoFast.get(`/instance/connect/${INSTANCE}`);
+      const qr = await extractQr(qrData);
+      if (qr) return res.json({ qr });
+    } catch { /* ignora */ }
 
     res.status(202).json({ message: 'Aguardando QR Code' });
   } catch (err) {
@@ -129,6 +140,12 @@ router.get('/debug', async (req, res) => {
     out.connectionState = { ok: true, data: r.data };
   } catch (e) {
     out.connectionState = { ok: false, error: e.message, status: e.response?.status };
+  }
+  try {
+    const r = await quick.get(`/instance/connect/${INSTANCE}`);
+    out.connect = { ok: true, keys: Object.keys(r.data || {}), hasBase64: !!r.data?.base64, hasCode: !!r.data?.code, raw: r.data };
+  } catch (e) {
+    out.connect = { ok: false, error: e.message, status: e.response?.status, data: e.response?.data };
   }
   res.json(out);
 });
