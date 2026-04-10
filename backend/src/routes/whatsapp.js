@@ -77,6 +77,30 @@ router.get('/qrcode', authenticate, async (req, res) => {
   }
 });
 
+// GET /api/whatsapp/debug — diagnóstico da Evolution API
+router.get('/debug', authenticate, async (req, res) => {
+  const out = { evo_url: EVO_URL, instance: INSTANCE, key_set: !!EVO_KEY };
+  try {
+    const r = await evo.get('/instance/fetchInstances');
+    out.fetchInstances = { ok: true, count: Array.isArray(r.data) ? r.data.length : r.data };
+  } catch (e) {
+    out.fetchInstances = { ok: false, error: e.message, status: e.response?.status, data: e.response?.data };
+  }
+  try {
+    const r = await evoFast.get(`/instance/connectionState/${INSTANCE}`);
+    out.connectionState = { ok: true, data: r.data };
+  } catch (e) {
+    out.connectionState = { ok: false, error: e.message, status: e.response?.status };
+  }
+  try {
+    const r = await evo.get(`/instance/connect/${INSTANCE}`);
+    out.connect = { ok: true, keys: Object.keys(r.data || {}), hasBase64: !!r.data?.base64, hasCode: !!r.data?.code };
+  } catch (e) {
+    out.connect = { ok: false, error: e.message, status: e.response?.status, data: e.response?.data };
+  }
+  res.json(out);
+});
+
 // POST /api/whatsapp/connect
 router.post('/connect', authenticate, async (req, res) => {
   try {
