@@ -104,8 +104,8 @@ router.get('/qrcode', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/whatsapp/debug — diagnóstico da Evolution API
-router.get('/debug', authenticate, async (req, res) => {
+// GET /api/whatsapp/debug — diagnóstico da Evolution API (sem auth para diagnóstico)
+router.get('/debug', async (req, res) => {
   const out = { evo_url: EVO_URL, instance: INSTANCE, key_set: !!EVO_KEY };
   try {
     const r = await evo.get('/instance/fetchInstances');
