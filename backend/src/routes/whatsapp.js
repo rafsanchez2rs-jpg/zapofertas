@@ -107,15 +107,22 @@ router.get('/qrcode', authenticate, async (req, res) => {
       qrcode: true,
       integration: 'WHATSAPP-BAILEYS',
     });
-    await new Promise((r) => setTimeout(r, 3000));
 
-    try {
-      const { data } = await evoFast.get(`/instance/connect/${INSTANCE}`);
-      const qr = await extractQr(data);
-      if (qr) return res.json({ qr });
-      console.log('[QR] Após recriar, connect retornou:', JSON.stringify(data));
-    } catch (e) {
-      console.log('[QR] connect após recriar falhou:', e.message);
+    // Baileys precisa de alguns segundos para inicializar e gerar o QR
+    // Faz polling do connect até o QR aparecer (máx 8 tentativas × 5s = 40s)
+    for (let attempt = 1; attempt <= 8; attempt++) {
+      await new Promise((r) => setTimeout(r, 5000));
+      try {
+        const { data } = await evoFast.get(`/instance/connect/${INSTANCE}`);
+        const qr = await extractQr(data);
+        if (qr) {
+          console.log(`[QR] QR obtido na tentativa ${attempt}`);
+          return res.json({ qr });
+        }
+        console.log(`[QR] Poll ${attempt}/8: ${JSON.stringify(data)}`);
+      } catch (e) {
+        console.log(`[QR] Poll ${attempt}/8 erro: ${e.message}`);
+      }
     }
 
     res.status(202).json({ message: 'Aguardando QR Code' });
