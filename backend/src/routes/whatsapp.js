@@ -1,32 +1,32 @@
 const express = require('express');
 const { authenticate } = require('../middleware/auth');
-const waManager = require('../services/whatsappClient');
+const { getSession } = require('../services/waSessions');
 const { getDb } = require('../db/database');
 
 const router = express.Router();
 
 // GET /api/whatsapp/status
 router.get('/status', authenticate, async (req, res) => {
-  const s = waManager.getStatus();
+  const s = getSession(req.user.id).getStatus();
   res.json({ status: s.status === 'ready' ? 'ready' : 'disconnected', phone: s.phone });
 });
 
-// GET /api/whatsapp/qrcode
-// Retorna QR se disponível, inicia Baileys se necessário
+// GET /api/whatsapp/qrcode — retorna QR da sessão do usuário logado
 router.get('/qrcode', authenticate, async (req, res) => {
-  if (waManager.status === 'ready') {
+  const wa = getSession(req.user.id);
+
+  if (wa.status === 'ready') {
     return res.json({ connected: true });
   }
 
-  if (waManager.qrBase64) {
-    return res.json({ qr: waManager.qrBase64 });
+  if (wa.qrBase64) {
+    return res.json({ qr: wa.qrBase64 });
   }
 
-  // Inicia conexão se ainda não iniciou
-  if (waManager.status === 'disconnected' && !waManager.isInitializing) {
-    console.log('[QR] Iniciando Baileys...');
-    waManager.initialize().catch((err) =>
-      console.error('[WA] Erro no initialize:', err.message)
+  if (wa.status === 'disconnected' && !wa.isInitializing) {
+    console.log(`[QR] Iniciando Baileys para user ${req.user.id}...`);
+    wa.initialize().catch((err) =>
+      console.error(`[WA] user ${req.user.id} init error:`, err.message)
     );
   }
 
@@ -35,8 +35,8 @@ router.get('/qrcode', authenticate, async (req, res) => {
 
 // POST /api/whatsapp/connect
 router.post('/connect', authenticate, async (req, res) => {
-  waManager.initialize().catch((err) =>
-    console.error('[WA Route] Init error:', err.message)
+  getSession(req.user.id).initialize().catch((err) =>
+    console.error(`[WA Route] user ${req.user.id} init error:`, err.message)
   );
   res.json({ message: 'Iniciando conexão WhatsApp. Aguarde o QR Code.' });
 });
@@ -44,7 +44,7 @@ router.post('/connect', authenticate, async (req, res) => {
 // POST /api/whatsapp/disconnect
 router.post('/disconnect', authenticate, async (req, res) => {
   try {
-    await waManager.logout();
+    await getSession(req.user.id).logout();
     res.json({ message: 'WhatsApp desconectado' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -54,7 +54,7 @@ router.post('/disconnect', authenticate, async (req, res) => {
 // GET /api/whatsapp/groups
 router.get('/groups', authenticate, async (req, res) => {
   try {
-    const groups = await waManager.getGroups();
+    const groups = await getSession(req.user.id).getGroups();
     res.json({ groups });
   } catch (err) {
     res.status(400).json({ error: err.message });

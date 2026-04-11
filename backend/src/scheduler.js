@@ -1,6 +1,6 @@
 const cron = require('node-cron');
 const { getDb } = require('./db/database');
-const waManager = require('./services/whatsappClient');
+const { getSession } = require('./services/waSessions');
 
 async function executeScheduledCampaign(campaign) {
   const pool = getDb();
@@ -28,7 +28,7 @@ async function executeScheduledCampaign(campaign) {
 
   for (let i = 0; i < groups.length; i++) {
     const g = groups[i];
-    const result = await waManager.sendMessage(g.wa_group_id, campaign.message, imageUrl);
+    const result = await getSession(campaign.user_id).sendMessage(g.wa_group_id, campaign.message, imageUrl);
     if (result.success) {
       successCount++;
       await pool.query(

@@ -6,11 +6,10 @@ const QRCode = require('qrcode');
 const { getDb } = require('../db/database');
 const { usePostgresAuthState } = require('./waAuthStore');
 
-const SESSION_ID = process.env.EVOLUTION_INSTANCE || 'zapofertas';
-
 class WhatsAppManager extends EventEmitter {
-  constructor() {
+  constructor(sessionId) {
     super();
+    this.sessionId = sessionId;
     this.status = 'disconnected'; // disconnected | connecting | qr | ready
     this.qrCode = null;           // raw QR string
     this.qrBase64 = null;         // base64 image para o frontend
@@ -32,7 +31,7 @@ class WhatsAppManager extends EventEmitter {
 
     try {
       const db = getDb();
-      const authStore = await usePostgresAuthState(db, SESSION_ID);
+      const authStore = await usePostgresAuthState(db, this.sessionId);
       this._authStore = authStore;
       const { state, saveCreds } = authStore;
 
@@ -76,7 +75,7 @@ class WhatsAppManager extends EventEmitter {
           if (loggedOut) {
             // Limpa sessão para forçar novo QR no próximo initialize()
             const db = getDb();
-            await db.query('DELETE FROM whatsapp_sessions WHERE session_id = $1', [SESSION_ID]);
+            await db.query('DELETE FROM whatsapp_sessions WHERE session_id = $1', [this.sessionId]);
             console.log('[WA] Sessão removida — novo QR necessário');
             this.emit('disconnected', 'LOGOUT');
           } else {
@@ -170,7 +169,7 @@ class WhatsAppManager extends EventEmitter {
     // Limpa sessão do banco
     try {
       const db = getDb();
-      await db.query('DELETE FROM whatsapp_sessions WHERE session_id = $1', [SESSION_ID]);
+      await db.query('DELETE FROM whatsapp_sessions WHERE session_id = $1', [this.sessionId]);
     } catch { /* ignore */ }
 
     this.status = 'disconnected';
@@ -185,4 +184,4 @@ class WhatsAppManager extends EventEmitter {
   }
 }
 
-module.exports = new WhatsAppManager();
+module.exports = WhatsAppManager;
