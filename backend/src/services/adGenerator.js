@@ -108,12 +108,20 @@ function generateAd(productData, userId = 'default') {
   lines.push('');
 
   // ── Preços ───────────────────────────────────────────────────────────────────
+  const hasPixSamePrice = pixPrice && pixPrice > 0 && Math.abs(pixPrice - salePrice) < 0.5;
+  const hasPixLower     = pixPrice && pixPrice > 0 && pixPrice < salePrice - 0.5;
+
   if (originalPrice && originalPrice > 0 && originalPrice > salePrice) {
     lines.push(`De❌ ${formatPrice(originalPrice)}`);
   }
-  lines.push(`Por 🔥 ${formatPrice(salePrice)}`);
-  if (pixPrice && pixPrice > 0 && pixPrice < salePrice) {
-    lines.push(`No Pix 💰 ${formatPrice(pixPrice)}`);
+  if (hasPixSamePrice) {
+    // Preço principal já é o Pix — indica na mesma linha
+    lines.push(`Por 🔥 ${formatPrice(salePrice)} no PIX 💰`);
+  } else {
+    lines.push(`Por 🔥 ${formatPrice(salePrice)}`);
+    if (hasPixLower) {
+      lines.push(`No Pix 💰 ${formatPrice(pixPrice)}`);
+    }
   }
 
   // ── Cupom ────────────────────────────────────────────────────────────────────
