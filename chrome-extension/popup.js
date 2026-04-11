@@ -1,6 +1,6 @@
 // ZapOfertas Capturar — Popup Script v5
 
-const BACKEND_URL = 'http://localhost:3001';
+const BACKEND_URL = 'https://zapofertas-backend.onrender.com';
 
 // ── State manager ────────────────────────────────────────────────────────────
 
@@ -221,7 +221,7 @@ document.getElementById('btn-retry').addEventListener('click', () => {
 
 document.getElementById('open-link').addEventListener('click', (e) => {
   e.preventDefault();
-  chrome.tabs.create({ url: 'http://localhost:5173/novo-anuncio' });
+  chrome.tabs.create({ url: 'https://zapofertas-frontend.onrender.com/novo-anuncio' });
 });
 
 // Start
