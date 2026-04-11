@@ -1,7 +1,7 @@
 const express = require('express');
 const { getDb } = require('../db/database');
 const { authenticate, planLimiter } = require('../middleware/auth');
-const waManager = require('../services/whatsappClient');
+const { getSession } = require('../services/waSessions');
 
 const router = express.Router();
 
@@ -31,7 +31,7 @@ async function executeCampaign(campaignId) {
 
   for (let i = 0; i < groups.length; i++) {
     const g = groups[i];
-    const result = await waManager.sendMessage(g.wa_group_id, campaign.message, imageUrl);
+    const result = await getSession(campaign.user_id).sendMessage(g.wa_group_id, campaign.message, imageUrl);
     if (result.success) {
       successCount++;
       await pool.query(
@@ -270,7 +270,7 @@ router.post('/', authenticate, planLimiter, async (req, res) => {
     const isFutureSchedule = scheduledAt && new Date(scheduledAt) > new Date();
 
     if (!isFutureSchedule) {
-      const { status } = waManager.getStatus();
+      const { status } = getSession(req.user.id).getStatus();
       if (status !== 'ready') {
         return res.status(400).json({
           error: 'WhatsApp não está conectado. Vá em Configurações e escaneie o QR Code.',

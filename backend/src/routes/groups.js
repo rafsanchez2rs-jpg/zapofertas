@@ -1,13 +1,13 @@
 const express = require('express');
 const { getDb } = require('../db/database');
 const { authenticate } = require('../middleware/auth');
-const waManager = require('../services/whatsappClient');
+const { getSession } = require('../services/waSessions');
 
 const router = express.Router();
 
 // GET /api/groups/wa-status
 router.get('/wa-status', authenticate, (req, res) => {
-  res.json(waManager.getStatus());
+  res.json(getSession(req.user.id).getStatus());
 });
 
 // GET /api/groups
@@ -30,7 +30,7 @@ router.get('/', authenticate, async (req, res) => {
 // GET /api/groups/wa-sync
 router.get('/wa-sync', authenticate, async (req, res) => {
   try {
-    const waGroups = await waManager.getGroups();
+    const waGroups = await getSession(req.user.id).getGroups();
     const pool = getDb();
 
     const client = await pool.connect();

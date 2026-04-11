@@ -9,7 +9,7 @@ const jwt = require('jsonwebtoken');
 
 const path = require('path');
 const { runMigrations } = require('./db/migrations');
-const waManager = require('./services/whatsappClient');
+const { getSession } = require('./services/waSessions');
 const { authenticate } = require('./middleware/auth');
 const scheduler = require('./scheduler');
 
@@ -33,59 +33,49 @@ wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://localhost');
   const token = url.searchParams.get('token');
 
-  if (!token) {
-    ws.send(JSON.stringify({ error: 'Token obrigatório' }));
-    ws.close();
-    return;
-  }
+  if (!token) { ws.send(JSON.stringify({ error: 'Token obrigatório' })); ws.close(); return; }
 
+  let decoded;
   try {
-    jwt.verify(token, process.env.JWT_SECRET || 'dev_secret');
+    decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev_secret');
   } catch {
-    ws.send(JSON.stringify({ error: 'Token inválido' }));
-    ws.close();
-    return;
+    ws.send(JSON.stringify({ error: 'Token inválido' })); ws.close(); return;
   }
 
-  wsClients.add(ws);
-  ws.on('close', () => wsClients.delete(ws));
+  const userId = decoded.id || decoded.userId;
+  const wa = getSession(userId);
 
-  // Send current status immediately on connect
-  const { status } = waManager.getStatus();
-  if (status === 'qr' && waManager.qrCode) {
-    QRCode.toDataURL(waManager.qrCode)
-      .then((qrBase64) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ status: 'qr', qr: qrBase64 }));
-        }
-      })
-      .catch(() => {});
+  const send = (data) => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data));
+  };
+
+  // Handlers vinculados a este WebSocket
+  const onQr = async (qr) => {
+    try { send({ status: 'qr', qr: await QRCode.toDataURL(qr) }); } catch {}
+  };
+  const onReady        = () => send({ status: 'ready' });
+  const onAuth         = () => send({ status: 'authenticated' });
+  const onDisconnected = (r) => send({ status: 'disconnected', reason: r });
+
+  wa.on('qr', onQr);
+  wa.on('ready', onReady);
+  wa.on('authenticated', onAuth);
+  wa.on('disconnected', onDisconnected);
+
+  ws.on('close', () => {
+    wa.off('qr', onQr);
+    wa.off('ready', onReady);
+    wa.off('authenticated', onAuth);
+    wa.off('disconnected', onDisconnected);
+  });
+
+  // Envia status atual imediatamente
+  if (wa.status === 'qr' && wa.qrBase64) {
+    send({ status: 'qr', qr: wa.qrBase64 });
   } else {
-    ws.send(JSON.stringify({ status }));
+    send({ status: wa.status });
   }
 });
-
-function broadcast(data) {
-  const payload = JSON.stringify(data);
-  for (const ws of wsClients) {
-    if (ws.readyState === WebSocket.OPEN) ws.send(payload);
-  }
-}
-
-// ── Wire waManager events → WebSocket broadcasts ──────────────────────────────
-waManager.on('qr', async (qr) => {
-  try {
-    const qrBase64 = await QRCode.toDataURL(qr);
-    broadcast({ status: 'qr', qr: qrBase64 });
-  } catch {}
-});
-
-waManager.on('authenticated', () => broadcast({ status: 'authenticated' }));
-waManager.on('ready', () => broadcast({ status: 'ready' }));
-waManager.on('auth_failure', (msg) => broadcast({ status: 'auth_failure', message: msg }));
-waManager.on('disconnected', (reason) => broadcast({ status: 'disconnected', reason }));
-waManager.on('rate_limited', (rl) => broadcast({ status: 'rate_limited', until: rl?.until }));
-waManager.on('max_reconnect_reached', (data) => broadcast({ status: 'max_reconnect_reached', message: data?.message }));
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors());
@@ -140,9 +130,7 @@ async function start() {
     console.log(`ZapOfertas Backend rodando na porta ${PORT}`);
     console.log(`API: http://localhost:${PORT}/api`);
     console.log(`Env: ${process.env.NODE_ENV}`);
-    waManager.initialize().catch((err) => {
-      console.error('[WA] Erro ao verificar sessão Evolution API:', err.message);
-    });
+    // Sessões WhatsApp inicializadas sob demanda por usuário
   });
 }
 
