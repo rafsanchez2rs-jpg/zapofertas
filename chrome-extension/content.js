@@ -307,16 +307,21 @@ if (!window.__zapOfertasLoaded) {
 
     // Pix — extrai apenas o valor imediatamente adjacente à palavra "pix"
     let pixPrice = null;
+    const _SKIP_TAGS = new Set(['script','style','noscript','head','meta','link']);
     const pixPatterns = [
-      /pix[:\s]*r\$\s*([\d.]+(?:,\d+)?)/i,
-      /r\$\s*([\d.]+(?:,\d+)?)\s*(?:no\s+)?pix/i,
+      /pix[:\s]*r\$\s*([\d.]+,\d{2})/i,           // "Pix: R$114,00"
+      /r\$\s*([\d.]+,\d{2})\s*(?:no\s+)?pix/i,    // "R$114,00 no Pix"
     ];
 
-    // Estratégia 1: varrer text nodes buscando padrão "pix R$X" ou "R$X no pix"
+    // Estratégia 1: text nodes visíveis (ignora script/style/noscript)
     const _pixWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     let _pixNode;
     while ((_pixNode = _pixWalker.nextNode()) && !pixPrice) {
+      const parentTag = (_pixNode.parentElement?.tagName || '').toLowerCase();
+      if (_SKIP_TAGS.has(parentTag)) continue;
+      if (isInShippingSection(_pixNode.parentElement)) continue;
       const txt = _pixNode.textContent.trim();
+      if (!txt || txt.length > 80) continue;
       for (const pat of pixPatterns) {
         const m = txt.match(pat);
         if (m) {
@@ -326,12 +331,13 @@ if (!window.__zapOfertasLoaded) {
       }
     }
 
-    // Estratégia 2: elementos curtos (< 60 chars) contendo pix + R$
+    // Estratégia 2: elementos curtos (< 50 chars) contendo pix + R$
     if (!pixPrice) {
       document.querySelectorAll('*').forEach(el => {
         if (pixPrice || el.children.length > 3 || isInShippingSection(el)) return;
+        if (_SKIP_TAGS.has(el.tagName?.toLowerCase())) return;
         const txt = (el.innerText || '').trim();
-        if (txt.length > 60 || !/pix/i.test(txt) || !/R\$/.test(txt)) return;
+        if (txt.length > 50 || !/pix/i.test(txt) || !/R\$/.test(txt)) return;
         for (const pat of pixPatterns) {
           const m = txt.match(pat);
           if (m) {
@@ -341,6 +347,9 @@ if (!window.__zapOfertasLoaded) {
         }
       });
     }
+
+    // Sanidade: preço Pix deve ser <= preço de venda (pix é sempre menor ou igual)
+    if (pixPrice && salePrice && pixPrice > salePrice * 1.05) pixPrice = null;
 
     // Cupom
     let couponValue = null;
