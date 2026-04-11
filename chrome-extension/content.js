@@ -37,6 +37,58 @@ if (!window.__zapOfertasLoaded) {
     return false;
   }
 
+  // ── Tags ignoradas na busca de preço Pix ────────────────────────────────────
+  const _SKIP_TAGS = new Set(['script','style','noscript','head','meta','link']);
+  const _PIX_PATTERNS = [
+    /pix[:\s]*r\$\s*([\d.]+,\d{2})/i,        // "Pix: R$114,00"
+    /r\$\s*([\d.]+,\d{2})\s*(?:no\s+)?pix/i, // "R$114,00 no Pix"
+  ];
+
+  // ── Extração de preço Pix (compartilhada Shopee + ML) ─────────────────────
+  function extractPixPrice(salePrice) {
+    let pixPrice = null;
+
+    // Estratégia 1: text nodes visíveis (ignora script/style/noscript)
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode()) && !pixPrice) {
+      const parentTag = (node.parentElement?.tagName || '').toLowerCase();
+      if (_SKIP_TAGS.has(parentTag)) continue;
+      if (isInShippingSection(node.parentElement)) continue;
+      const txt = node.textContent.trim();
+      if (!txt || txt.length > 80) continue;
+      for (const pat of _PIX_PATTERNS) {
+        const m = txt.match(pat);
+        if (m) {
+          const v = cleanPrice(m[1]);
+          if (v && v > 1 && v < 50000) { pixPrice = v; break; }
+        }
+      }
+    }
+
+    // Estratégia 2: elementos curtos (< 50 chars) com "pix" + "R$"
+    if (!pixPrice) {
+      document.querySelectorAll('*').forEach(el => {
+        if (pixPrice || el.children.length > 3 || isInShippingSection(el)) return;
+        if (_SKIP_TAGS.has(el.tagName?.toLowerCase())) return;
+        const txt = (el.innerText || '').trim();
+        if (txt.length > 50 || !/pix/i.test(txt) || !/R\$/.test(txt)) return;
+        for (const pat of _PIX_PATTERNS) {
+          const m = txt.match(pat);
+          if (m) {
+            const v = cleanPrice(m[1]);
+            if (v && v > 1 && v < 50000) { pixPrice = v; break; }
+          }
+        }
+      });
+    }
+
+    // Sanidade: Pix deve ser <= preço de venda
+    if (pixPrice && salePrice && pixPrice > salePrice * 1.05) pixPrice = null;
+
+    return pixPrice ? parseFloat(pixPrice.toFixed(2)) : null;
+  }
+
   // ── Extrair valor de um container .andes-money-amount ──────────────────────
   function extractAndesPrice(container) {
     if (!container) return null;
@@ -188,12 +240,14 @@ if (!window.__zapOfertasLoaded) {
       else if (percentMatch) { couponValue = parseInt(percentMatch[1]); couponType = 'percent'; }
     }
 
+    const pixPrice = extractPixPrice(salePrice);
+
     return {
       platform: 'mercadolivre',
       productName,
       salePrice:     salePrice     ? parseFloat(salePrice.toFixed(2))     : null,
       originalPrice: originalPrice ? parseFloat(originalPrice.toFixed(2)) : null,
-      pixPrice:      null,
+      pixPrice,
       discountPercent,
       imageUrl,
       couponValue,
@@ -305,51 +359,8 @@ if (!window.__zapOfertasLoaded) {
       }
     }
 
-    // Pix — extrai apenas o valor imediatamente adjacente à palavra "pix"
-    let pixPrice = null;
-    const _SKIP_TAGS = new Set(['script','style','noscript','head','meta','link']);
-    const pixPatterns = [
-      /pix[:\s]*r\$\s*([\d.]+,\d{2})/i,           // "Pix: R$114,00"
-      /r\$\s*([\d.]+,\d{2})\s*(?:no\s+)?pix/i,    // "R$114,00 no Pix"
-    ];
-
-    // Estratégia 1: text nodes visíveis (ignora script/style/noscript)
-    const _pixWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    let _pixNode;
-    while ((_pixNode = _pixWalker.nextNode()) && !pixPrice) {
-      const parentTag = (_pixNode.parentElement?.tagName || '').toLowerCase();
-      if (_SKIP_TAGS.has(parentTag)) continue;
-      if (isInShippingSection(_pixNode.parentElement)) continue;
-      const txt = _pixNode.textContent.trim();
-      if (!txt || txt.length > 80) continue;
-      for (const pat of pixPatterns) {
-        const m = txt.match(pat);
-        if (m) {
-          const v = cleanPrice(m[1]);
-          if (v && v > 1 && v < 50000) { pixPrice = v; break; }
-        }
-      }
-    }
-
-    // Estratégia 2: elementos curtos (< 50 chars) contendo pix + R$
-    if (!pixPrice) {
-      document.querySelectorAll('*').forEach(el => {
-        if (pixPrice || el.children.length > 3 || isInShippingSection(el)) return;
-        if (_SKIP_TAGS.has(el.tagName?.toLowerCase())) return;
-        const txt = (el.innerText || '').trim();
-        if (txt.length > 50 || !/pix/i.test(txt) || !/R\$/.test(txt)) return;
-        for (const pat of pixPatterns) {
-          const m = txt.match(pat);
-          if (m) {
-            const v = cleanPrice(m[1]);
-            if (v && v > 1 && v < 50000) { pixPrice = v; break; }
-          }
-        }
-      });
-    }
-
-    // Sanidade: preço Pix deve ser <= preço de venda (pix é sempre menor ou igual)
-    if (pixPrice && salePrice && pixPrice > salePrice * 1.05) pixPrice = null;
+    // Pix
+    const pixPrice = extractPixPrice(salePrice);
 
     // Cupom
     let couponValue = null;
