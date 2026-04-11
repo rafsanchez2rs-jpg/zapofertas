@@ -14,7 +14,7 @@ import Admin from './pages/Admin';
 import Help from './pages/Help';
 import InstallExtension from './pages/InstallExtension';
 
-const EXT_DOWNLOAD_URL = 'https://github.com/rafsanchez2rs-jpg/zapofertas/archive/refs/heads/main.zip';
+const EXT_DOWNLOAD_URL = 'https://github.com/rafsanchez2rs-jpg/zapofertas/releases/download/v1.1/zapofertas-extension.zip';
 
 function ExtensionBanner() {
   const [show, setShow] = useState(false);

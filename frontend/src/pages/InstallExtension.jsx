@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Download, Chrome, FolderOpen, ToggleRight, Puzzle, CheckCircle, ChevronDown, ChevronUp, Zap, ExternalLink } from 'lucide-react';
 
-const EXT_DOWNLOAD_URL = 'https://github.com/rafsanchez2rs-jpg/zapofertas/archive/refs/heads/main.zip';
+const EXT_DOWNLOAD_URL = 'https://github.com/rafsanchez2rs-jpg/zapofertas/releases/download/v1.1/zapofertas-extension.zip';
 
 const STEPS = [
   {
