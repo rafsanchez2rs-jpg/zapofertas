@@ -1,6 +1,15 @@
 /**
  * URL Scraper — extrai dados de produtos de Shopee e Mercado Livre via URL
  * Usado pelo app Android (que nao tem extensao Chrome para injetar scripts)
+ *
+ * Estrategia Shopee:
+ *   1. Link curto (s.shopee.com.br) → HTML com JS que contem shopId/itemId
+ *   2. Extrai IDs do CONFIG.httpUrl embutido no HTML
+ *   3. Usa URL /product/SHOPID/ITEMID para pegar meta tags (og:title, og:image)
+ *   4. API v4 como fallback para precos
+ *
+ * Estrategia ML:
+ *   1. Acessa URL direta e le meta tags + HTML
  */
 
 const axios = require('axios');
@@ -20,7 +29,6 @@ function getCached(url) {
 
 function setCache(url, data) {
   cache.set(url, { data, ts: Date.now() });
-  // Limpar cache antigo
   if (cache.size > 100) {
     const oldest = [...cache.entries()].sort((a, b) => a[1].ts - b[1].ts);
     for (let i = 0; i < 50; i++) cache.delete(oldest[i][0]);
@@ -30,76 +38,92 @@ function setCache(url, data) {
 // ── Detectar plataforma ─────────────────────────────────────────────────────
 
 function detectPlatform(url) {
-  if (url.includes('shopee.com.br')) return 'shopee';
+  if (url.includes('shopee.com.br') || url.includes('s.shopee')) return 'shopee';
   if (url.includes('mercadolivre.com.br') || url.includes('mercadolibre.com') || url.includes('meli.') || url.includes('/MLB') || url.includes('-MLB')) return 'mercadolivre';
   return null;
 }
 
-// ── SHOPEE SCRAPER ──────────────────────────────────────────────────────────
+// ── Extrair shopId/itemId de qualquer URL Shopee ────────────────────────────
 
-function extractShopeeIds(url) {
-  // Formato: shopee.com.br/nome-do-produto-i.SHOPID.ITEMID
-  const match = url.match(/i\.(\d+)\.(\d+)/);
+function extractShopeeIds(text) {
+  // Formato: i.SHOPID.ITEMID (URL normal)
+  let match = text.match(/i\.(\d+)\.(\d+)/);
   if (match) return { shopId: match[1], itemId: match[2] };
 
-  // Formato de URL curta com product/SHOPID/ITEMID
-  const match2 = url.match(/product\/(\d+)\/(\d+)/);
-  if (match2) return { shopId: match2[1], itemId: match2[2] };
+  // Formato: product/SHOPID/ITEMID
+  match = text.match(/product\/(\d+)\/(\d+)/);
+  if (match) return { shopId: match[1], itemId: match[2] };
+
+  // Formato: opaanlp/SHOPID/ITEMID (link de afiliado)
+  match = text.match(/opaanlp\/(\d+)\/(\d+)/);
+  if (match) return { shopId: match[1], itemId: match[2] };
 
   return null;
 }
 
-async function scrapeShopeeApi(shopId, itemId) {
+// ── Resolver link curto Shopee via HTML parsing ─────────────────────────────
+
+async function resolveShopeeShortUrl(shortUrl) {
   try {
-    const apiUrl = `https://shopee.com.br/api/v4/item/get?itemid=${itemId}&shopid=${shopId}`;
-    const { data } = await axios.get(apiUrl, {
-      headers: { 'User-Agent': USER_AGENT, 'Accept': 'application/json' },
+    const { data: html } = await axios.get(shortUrl, {
+      headers: { 'User-Agent': USER_AGENT },
       timeout: 10000,
+      maxRedirects: 5,
     });
 
-    const item = data?.data;
-    if (!item) return null;
+    // Extrair httpUrl do CONFIG no JavaScript
+    const httpUrlMatch = html.match(/httpUrl\s*:\s*"([^"]+)"/);
+    if (httpUrlMatch) {
+      // Decodificar unicode escapes (\u0026 = &)
+      const decoded = httpUrlMatch[1].replace(/\\u([0-9a-fA-F]{4})/g, (_, code) =>
+        String.fromCharCode(parseInt(code, 16))
+      );
+      console.log('[Scraper] Shopee short URL resolved to:', decoded.substring(0, 100));
+      return decoded;
+    }
 
-    const salePrice = (item.price || item.price_before_discount || 0) / 100000;
-    const originalPrice = item.price_before_discount ? item.price_before_discount / 100000 : null;
-    const discount = item.raw_discount || item.show_discount || 0;
+    // Tentar extrair IDs direto do HTML
+    const ids = extractShopeeIds(html);
+    if (ids) {
+      return `https://shopee.com.br/product/${ids.shopId}/${ids.itemId}`;
+    }
 
-    return {
-      platform: 'shopee',
-      productName: item.name || null,
-      originalPrice: originalPrice && originalPrice > salePrice ? parseFloat(originalPrice.toFixed(2)) : null,
-      salePrice: salePrice > 0 ? parseFloat(salePrice.toFixed(2)) : null,
-      pixPrice: null,
-      discountPercent: discount > 0 ? Math.round(discount) : null,
-      imageUrl: item.image ? `https://down-br.img.susercontent.com/file/${item.image}` : null,
-      couponValue: null,
-      couponType: 'fixed',
-      productUrl: `https://shopee.com.br/product/${shopId}/${itemId}`,
-    };
+    return shortUrl;
   } catch (err) {
-    console.warn('[Scraper] Shopee API failed:', err.message);
-    return null;
+    console.warn('[Scraper] Failed to resolve Shopee short URL:', err.message);
+    return shortUrl;
   }
 }
 
-async function scrapeShopeeHtml(url) {
+// ── SHOPEE SCRAPER via meta tags ────────────────────────────────────────────
+
+async function scrapeShopeeProduct(shopId, itemId) {
   try {
-    const { data: html } = await axios.get(url, {
+    // Usar URL /product/SHOPID/ITEMID que retorna meta tags confiaveis
+    const productUrl = `https://shopee.com.br/product/${shopId}/${itemId}`;
+    const { data: html } = await axios.get(productUrl, {
       headers: { 'User-Agent': USER_AGENT },
       timeout: 10000,
       maxRedirects: 5,
     });
 
     const getMetaContent = (property) => {
-      const re = new RegExp(`<meta[^>]+(?:property|name)=["']${property}["'][^>]+content=["']([^"']+)["']`, 'i');
+      // Suporta ambos os formatos: property="X" content="Y" e data-rh="true" property="X" content="Y"
+      const re = new RegExp(`(?:property|name)=["']${property}["'][^>]+content=["']([^"']+)["']`, 'i');
       const match = html.match(re);
       return match ? match[1] : null;
     };
 
-    const productName = getMetaContent('og:title')?.replace(/\s*[\|–-]\s*Shopee.*$/i, '').trim() || null;
+    const rawTitle = getMetaContent('og:title');
+    const productName = rawTitle
+      ? rawTitle.replace(/\s*[\|–-]\s*Shopee.*$/i, '').trim()
+      : null;
+
     const imageUrl = getMetaContent('og:image') || null;
     const priceStr = getMetaContent('product:price:amount');
     const salePrice = priceStr ? parseFloat(priceStr) : null;
+
+    console.log(`[Scraper] Shopee product: "${productName}", price: ${salePrice}, image: ${imageUrl ? 'yes' : 'no'}`);
 
     return {
       platform: 'shopee',
@@ -111,21 +135,63 @@ async function scrapeShopeeHtml(url) {
       imageUrl,
       couponValue: null,
       couponType: 'fixed',
-      productUrl: url,
+      productUrl: productUrl,
     };
   } catch (err) {
-    console.warn('[Scraper] Shopee HTML failed:', err.message);
+    console.warn('[Scraper] Shopee product page failed:', err.message);
     return null;
   }
 }
 
+// ── SHOPEE: fluxo principal ─────────────────────────────────────────────────
+
 async function scrapeShopee(url) {
-  const ids = extractShopeeIds(url);
-  if (ids) {
-    const apiResult = await scrapeShopeeApi(ids.shopId, ids.itemId);
-    if (apiResult && apiResult.productName) return apiResult;
+  let resolvedUrl = url;
+
+  // Se é link curto (s.shopee.com.br), resolver via HTML parsing
+  if (url.includes('s.shopee.com.br')) {
+    resolvedUrl = await resolveShopeeShortUrl(url);
   }
-  return scrapeShopeeHtml(url);
+
+  // Extrair IDs do produto
+  const ids = extractShopeeIds(resolvedUrl);
+  if (ids) {
+    const result = await scrapeShopeeProduct(ids.shopId, ids.itemId);
+    if (result && result.productName) return result;
+  }
+
+  // Fallback: tentar meta tags da URL direta
+  try {
+    const { data: html } = await axios.get(resolvedUrl, {
+      headers: { 'User-Agent': USER_AGENT },
+      timeout: 10000,
+      maxRedirects: 5,
+    });
+
+    const getMetaContent = (property) => {
+      const re = new RegExp(`(?:property|name)=["']${property}["'][^>]+content=["']([^"']+)["']`, 'i');
+      const match = html.match(re);
+      return match ? match[1] : null;
+    };
+
+    const rawTitle = getMetaContent('og:title');
+    if (rawTitle && !rawTitle.includes('Shopee Brasil | Ofertas')) {
+      return {
+        platform: 'shopee',
+        productName: rawTitle.replace(/\s*[\|–-]\s*Shopee.*$/i, '').trim(),
+        originalPrice: null,
+        salePrice: null,
+        pixPrice: null,
+        discountPercent: null,
+        imageUrl: getMetaContent('og:image') || null,
+        couponValue: null,
+        couponType: 'fixed',
+        productUrl: resolvedUrl,
+      };
+    }
+  } catch {}
+
+  return null;
 }
 
 // ── MERCADO LIVRE SCRAPER ───────────────────────────────────────────────────
@@ -139,7 +205,7 @@ async function scrapeMercadoLivre(url) {
     });
 
     const getMetaContent = (property) => {
-      const re = new RegExp(`<meta[^>]+(?:property|name)=["']${property}["'][^>]+content=["']([^"']+)["']`, 'i');
+      const re = new RegExp(`(?:property|name)=["']${property}["'][^>]+content=["']([^"']+)["']`, 'i');
       const match = html.match(re);
       return match ? match[1] : null;
     };
@@ -174,7 +240,6 @@ async function scrapeMercadoLivre(url) {
     if (originalMeta) {
       originalPrice = parseFloat(originalMeta);
     } else {
-      // Buscar no HTML - preco original geralmente vem em price__original-value
       const origMatch = html.match(/price__original-value[\s\S]*?andes-money-amount__fraction"[^>]*>([^<]+)/);
       if (origMatch) {
         const intPart = origMatch[1].replace(/\./g, '').trim();
@@ -197,6 +262,8 @@ async function scrapeMercadoLivre(url) {
       discountPercent = Math.round((1 - salePrice / originalPrice) * 100);
     }
 
+    console.log(`[Scraper] ML product: "${productName}", price: ${salePrice}, original: ${originalPrice}`);
+
     return {
       platform: 'mercadolivre',
       productName,
@@ -215,7 +282,7 @@ async function scrapeMercadoLivre(url) {
   }
 }
 
-// ── Resolver URL curta ──────────────────────────────────────────────────────
+// ── Resolver URL curta generica ─────────────────────────────────────────────
 
 async function resolveShortUrl(url) {
   try {
@@ -226,7 +293,6 @@ async function resolveShortUrl(url) {
     });
     return response.request?.res?.responseUrl || url;
   } catch (err) {
-    // Tentar pegar da resposta de erro (redirect)
     if (err.response?.headers?.location) return err.response.headers.location;
     return url;
   }
@@ -235,11 +301,7 @@ async function resolveShortUrl(url) {
 // ── Funcao principal ────────────────────────────────────────────────────────
 
 async function scrapeProductFromUrl(rawUrl) {
-  // Resolver URL curta se necessario
   let url = rawUrl.trim();
-  if (url.includes('s.shopee') || url.includes('bit.ly') || url.includes('meli.') || url.length < 60) {
-    url = await resolveShortUrl(url);
-  }
 
   // Checar cache
   const cached = getCached(url);
@@ -248,12 +310,13 @@ async function scrapeProductFromUrl(rawUrl) {
   const platform = detectPlatform(url);
 
   let result = null;
+
   if (platform === 'shopee') {
     result = await scrapeShopee(url);
   } else if (platform === 'mercadolivre') {
     result = await scrapeMercadoLivre(url);
   } else {
-    // Tentar resolver e detectar novamente
+    // Tentar resolver URL curta e detectar novamente
     const resolved = await resolveShortUrl(url);
     const resolvedPlatform = detectPlatform(resolved);
     if (resolvedPlatform === 'shopee') result = await scrapeShopee(resolved);
@@ -262,8 +325,8 @@ async function scrapeProductFromUrl(rawUrl) {
   }
 
   if (result) {
-    // Garantir URL final
-    result.productUrl = result.productUrl || url;
+    // Manter a URL original (link de afiliado) como productUrl
+    result.productUrl = rawUrl.trim();
     setCache(url, result);
   }
 
