@@ -159,6 +159,26 @@ Retorne SOMENTE o JSON, sem markdown, sem explicações.`;
   }
 });
 
+// POST /api/products/from-url — scraping server-side (para app Android)
+const { scrapeProductFromUrl } = require('../services/urlScraper');
+
+router.post('/from-url', authenticate, async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'URL e obrigatoria' });
+
+    const data = await scrapeProductFromUrl(url);
+    if (!data) {
+      return res.status(422).json({ error: 'Nao foi possivel extrair dados desta URL. Tente o modo manual.' });
+    }
+
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('[Products] from-url error:', err.message);
+    res.status(500).json({ error: 'Erro ao processar URL' });
+  }
+});
+
 // POST /api/products/generate-ad
 // Generate ad message from product data (called after manual edits too)
 router.post('/generate-ad', authenticate, async (req, res) => {
