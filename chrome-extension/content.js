@@ -240,7 +240,16 @@ if (!window.__zapOfertasLoaded) {
       else if (percentMatch) { couponValue = parseInt(percentMatch[1]); couponType = 'percent'; }
     }
 
-    const pixPrice = extractPixPrice(salePrice);
+    let pixPrice = extractPixPrice(salePrice);
+
+    // Se não achou via padrão de texto, verifica se a página indica "no Pix"
+    // próximo ao preço (ex: "48% OFF no Pix") — nesse caso o salePrice já É o Pix
+    if (!pixPrice && salePrice) {
+      const bodyText = document.body.innerText || '';
+      if (/off\s+no\s+pix|no\s+pix|via\s+pix/i.test(bodyText)) {
+        pixPrice = salePrice;
+      }
+    }
 
     return {
       platform: 'mercadolivre',
