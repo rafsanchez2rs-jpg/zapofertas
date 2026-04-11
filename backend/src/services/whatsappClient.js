@@ -108,6 +108,25 @@ class WhatsAppManager extends EventEmitter {
     this.isInitializing = false;
   }
 
+  // ── Pairing code (para app mobile — sem QR code) ──────────────────────────
+  async requestPairingCode(phoneNumber) {
+    if (!this.sock) {
+      throw new Error('WhatsApp não inicializado. Chame initialize() primeiro.');
+    }
+
+    // Formatar número: remover +, espaços, traços
+    const phone = phoneNumber.replace(/[\s\-\+\(\)]/g, '');
+
+    try {
+      const code = await this.sock.requestPairingCode(phone);
+      console.log(`[WA] Pairing code gerado para ${phone}: ${code}`);
+      return code;
+    } catch (err) {
+      console.error('[WA] Erro ao gerar pairing code:', err.message);
+      throw new Error('Erro ao gerar código de pareamento. Verifique o número.');
+    }
+  }
+
   // ── Envio de mensagem ─────────────────────────────────────────────────────
   async sendMessage(chatId, text, imageUrl = null) {
     if (this.status !== 'ready' || !this.sock) {

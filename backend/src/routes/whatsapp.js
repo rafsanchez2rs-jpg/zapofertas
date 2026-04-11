@@ -41,6 +41,40 @@ router.post('/connect', authenticate, async (req, res) => {
   res.json({ message: 'Iniciando conexão WhatsApp. Aguarde o QR Code.' });
 });
 
+// POST /api/whatsapp/pairing-code — gera código de pareamento (para app mobile)
+router.post('/pairing-code', authenticate, async (req, res) => {
+  try {
+    const { phoneNumber } = req.body;
+    if (!phoneNumber) {
+      return res.status(400).json({ error: 'Número de telefone é obrigatório' });
+    }
+
+    const wa = getSession(req.user.id);
+
+    // Inicializar se não estiver conectando
+    if (wa.status === 'disconnected' && !wa.isInitializing) {
+      await wa.initialize();
+    }
+
+    // Aguardar o socket estar pronto para pairing (status 'qr' ou 'connecting')
+    let attempts = 0;
+    while (!wa.sock && attempts < 10) {
+      await new Promise(r => setTimeout(r, 1000));
+      attempts++;
+    }
+
+    if (!wa.sock) {
+      return res.status(500).json({ error: 'Não foi possível inicializar o WhatsApp. Tente novamente.' });
+    }
+
+    const code = await wa.requestPairingCode(phoneNumber);
+    res.json({ code });
+  } catch (err) {
+    console.error('[WA Route] pairing-code error:', err.message);
+    res.status(500).json({ error: err.message || 'Erro ao gerar código de pareamento' });
+  }
+});
+
 // POST /api/whatsapp/disconnect
 router.post('/disconnect', authenticate, async (req, res) => {
   try {
