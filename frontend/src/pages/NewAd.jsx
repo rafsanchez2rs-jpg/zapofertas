@@ -121,7 +121,9 @@ export default function NewAd() {
       productName: p.productName || '',
       originalPrice: p.originalPrice != null ? String(p.originalPrice) : '',
       salePrice: p.salePrice != null ? String(p.salePrice) : '',
-      pixPrice: p.pixPrice != null ? String(p.pixPrice) : '',
+      pixPrice: p.pixPrice != null
+        ? String(p.pixPrice)
+        : (p.platform === 'mercadolivre' && p.salePrice != null ? String(p.salePrice) : ''),
       discountPercent: p.discountPercent != null ? String(p.discountPercent) : '',
       couponValue: p.couponValue != null ? String(p.couponValue) : '',
     });
