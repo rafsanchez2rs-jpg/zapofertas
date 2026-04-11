@@ -43,6 +43,7 @@ router.get('/wa-sync', authenticate, async (req, res) => {
           ON CONFLICT(user_id, wa_group_id) DO UPDATE SET
             name = EXCLUDED.name,
             participant_count = EXCLUDED.participant_count,
+            active = 0,
             updated_at = NOW()
         `, [req.user.id, g.id, g.name, g.participantCount || 0]);
       }
