@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   History as HistoryIcon, RefreshCw,
   ExternalLink, RotateCcw, Loader, Filter, Trash2, AlertTriangle,
+  ChevronUp, ChevronDown, ChevronsUpDown,
 } from 'lucide-react';
 import api from '../services/api';
 
@@ -46,6 +47,8 @@ export default function History() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [platformFilter, setPlatformFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortDir, setSortDir] = useState('desc');
   const [resending, setResending] = useState(null);
   const [cancelling, setCancelling] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
@@ -141,6 +144,46 @@ export default function History() {
     v != null
       ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
       : '—';
+
+  const handleSort = (col) => {
+    if (sortBy === col) setSortDir((d) => d === 'asc' ? 'desc' : 'asc');
+    else { setSortBy(col); setSortDir('asc'); }
+  };
+
+  const sortedCampaigns = useMemo(() => {
+    const arr = [...campaigns];
+    arr.sort((a, b) => {
+      let av, bv;
+      if (sortBy === 'product_name') {
+        av = (a.product_name || '').toLowerCase();
+        bv = (b.product_name || '').toLowerCase();
+      } else if (sortBy === 'sale_price') {
+        av = a.sale_price || 0;
+        bv = b.sale_price || 0;
+      } else if (sortBy === 'groups') {
+        av = a.groups_sent || 0;
+        bv = b.groups_sent || 0;
+      } else if (sortBy === 'status') {
+        av = a.status || '';
+        bv = b.status || '';
+      } else {
+        // created_at / data
+        av = new Date(a.scheduled_at || a.created_at).getTime();
+        bv = new Date(b.scheduled_at || b.created_at).getTime();
+      }
+      if (av < bv) return sortDir === 'asc' ? -1 : 1;
+      if (av > bv) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return arr;
+  }, [campaigns, sortBy, sortDir]);
+
+  const SortIcon = ({ col }) => {
+    if (sortBy !== col) return <ChevronsUpDown size={12} className="opacity-30" />;
+    return sortDir === 'asc'
+      ? <ChevronUp size={12} className="text-accent" />
+      : <ChevronDown size={12} className="text-accent" />;
+  };
 
   return (
     <div className="max-w-6xl animate-fade-in space-y-5">
@@ -267,17 +310,30 @@ export default function History() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="text-left text-text-secondary text-xs font-medium px-4 py-3">Produto</th>
-                  <th className="text-left text-text-secondary text-xs font-medium px-4 py-3">Plataforma</th>
-                  <th className="text-left text-text-secondary text-xs font-medium px-4 py-3">Preço</th>
-                  <th className="text-left text-text-secondary text-xs font-medium px-4 py-3">Grupos</th>
-                  <th className="text-left text-text-secondary text-xs font-medium px-4 py-3">Status</th>
-                  <th className="text-left text-text-secondary text-xs font-medium px-4 py-3">Data</th>
+                  {[
+                    { col: 'product_name', label: 'Produto' },
+                    { col: null,           label: 'Plataforma' },
+                    { col: 'sale_price',   label: 'Preço' },
+                    { col: 'groups',       label: 'Grupos' },
+                    { col: 'status',       label: 'Status' },
+                    { col: 'created_at',   label: 'Data' },
+                  ].map(({ col, label }) => (
+                    <th
+                      key={label}
+                      className={`text-left text-text-secondary text-xs font-medium px-4 py-3 ${col ? 'cursor-pointer select-none hover:text-text-primary' : ''}`}
+                      onClick={col ? () => handleSort(col) : undefined}
+                    >
+                      <span className="flex items-center gap-1">
+                        {label}
+                        {col && <SortIcon col={col} />}
+                      </span>
+                    </th>
+                  ))}
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
-                {campaigns.map((c) => {
+                {sortedCampaigns.map((c) => {
                   const statusConf = STATUS_CONFIG[c.status] || STATUS_CONFIG.pending;
                   const isExpanded = expandedId === c.id;
 
