@@ -1,0 +1,26 @@
+# Fly.io configuration para zapofertas-backend
+# Deploy: flyctl deploy --config fly.toml (dentro da pasta backend/)
+# Docs: https://fly.io/docs/reference/configuration/
+
+app = "zapofertas-backend"
+primary_region = "gru"  # São Paulo — menor latência para Brasil
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3001"
+  NODE_ENV = "production"
+
+# Serviço HTTP sempre ativo (sem sleep)
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = false   # NUNCA dorme — resolve o cold start problem
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512              # 512MB suficiente para Baileys + Node.js

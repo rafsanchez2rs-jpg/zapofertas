@@ -150,6 +150,17 @@ async function runMigrations() {
     }
   }
 
+  // Tabela para sessão Baileys (substitui Evolution API)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS whatsapp_sessions (
+      session_id VARCHAR(100) NOT NULL,
+      data_key   VARCHAR(255) NOT NULL,
+      data       TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (session_id, data_key)
+    )
+  `);
+
   console.log('[DB] Migrations executadas com sucesso');
 }
 
