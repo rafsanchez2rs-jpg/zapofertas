@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, Download, X } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Login from './pages/Login';
@@ -12,6 +12,50 @@ import History from './pages/History';
 import Settings from './pages/Settings';
 import Admin from './pages/Admin';
 import Help from './pages/Help';
+import InstallExtension from './pages/InstallExtension';
+
+const EXT_DOWNLOAD_URL = 'https://github.com/rafsanchez2rs-jpg/zapofertas/archive/refs/heads/main.zip';
+
+function ExtensionBanner() {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    if (localStorage.getItem('extBannerDismissed')) return;
+    setShow(true);
+  }, []);
+
+  const dismiss = () => {
+    localStorage.setItem('extBannerDismissed', '1');
+    setShow(false);
+  };
+
+  if (!show) return null;
+
+  return (
+    <div className="fixed top-0 left-0 right-0 z-50 bg-accent text-black px-4 py-2.5 flex items-center justify-between gap-4 shadow-lg">
+      <div className="flex items-center gap-2 text-sm font-medium flex-1 min-w-0">
+        <span>⚡</span>
+        <span className="truncate">Instale a extensão ZapOfertas no Chrome para capturar produtos automaticamente</span>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <a
+          href="/extensao"
+          className="flex items-center gap-1.5 bg-black/15 hover:bg-black/25 transition-colors rounded-lg px-3 py-1.5 text-xs font-semibold"
+        >
+          <Download size={13} />
+          Como instalar
+        </a>
+        <button
+          onClick={dismiss}
+          className="p-1 hover:bg-black/10 rounded transition-colors"
+          aria-label="Fechar"
+        >
+          <X size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function FloatingSupport() {
   return (
@@ -46,6 +90,7 @@ function PrivateLayout({ children }) {
 
   return (
     <div className="min-h-screen bg-bg flex">
+      <ExtensionBanner />
       <Navbar />
       <main className="flex-1 ml-64 p-6 overflow-auto animate-fade-in">
         {children}
@@ -84,6 +129,7 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="/extensao" element={<InstallExtension />} />
           <Route path="/setup" element={<Setup />} />
           <Route
             path="/login"

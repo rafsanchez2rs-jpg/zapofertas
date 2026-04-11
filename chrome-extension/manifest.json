@@ -28,7 +28,8 @@
       "matches": [
         "https://*.shopee.com.br/*",
         "https://*.mercadolivre.com.br/*",
-        "https://*.mercadolibre.com/*"
+        "https://*.mercadolibre.com/*",
+        "https://zapofertas-frontend.onrender.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"

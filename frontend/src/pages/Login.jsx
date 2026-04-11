@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Mail, Lock, User, Eye, EyeOff, ArrowRight } from 'lucide-react';
+import { Zap, Mail, Lock, User, Eye, EyeOff, ArrowRight, Puzzle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -169,8 +169,19 @@ export default function Login() {
           )}
         </div>
 
+        {/* Extension link */}
+        <div className="mt-4 text-center">
+          <a
+            href="/extensao"
+            className="inline-flex items-center gap-1.5 text-text-secondary hover:text-accent transition-colors text-xs"
+          >
+            <Puzzle size={13} />
+            Como instalar a extensão do Chrome?
+          </a>
+        </div>
+
         {/* Footer */}
-        <p className="text-center text-text-secondary text-xs mt-6">
+        <p className="text-center text-text-secondary text-xs mt-4">
           ZapOfertas v1.0 — Automação inteligente de afiliados
         </p>
       </div>

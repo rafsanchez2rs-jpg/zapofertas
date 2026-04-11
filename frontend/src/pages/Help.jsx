@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronUp, MessageCircle, HelpCircle } from 'lucide-react';
+import { ChevronDown, ChevronUp, MessageCircle, HelpCircle, Download, Puzzle } from 'lucide-react';
+
+const EXT_DOWNLOAD_URL = 'https://github.com/rafsanchez2rs-jpg/zapofertas/archive/refs/heads/main.zip';
 
 const SECTIONS = [
   {
@@ -13,12 +15,13 @@ const SECTIONS = [
   },
   {
     title: '🧩 Como instalar e usar a extensão',
-    content: `INSTALAÇÃO:
-1. Abra o Chrome e acesse: chrome://extensions
-2. Ative o "Modo desenvolvedor" (canto superior direito)
-3. Clique em "Carregar sem compactação"
-4. Selecione a pasta: zapOfertas/chrome-extension
-5. O ícone ⚡ aparecerá na barra do Chrome
+    content: `INSTALAÇÃO (após baixar o arquivo ZIP):
+1. Extraia o ZIP baixado em uma pasta permanente no seu computador
+2. Abra o Chrome e acesse: chrome://extensions
+3. Ative o "Modo desenvolvedor" (canto superior direito)
+4. Clique em "Carregar sem compactação"
+5. Selecione a pasta: zapofertas-main/chrome-extension
+6. O ícone ⚡ aparecerá na barra do Chrome
 
 COMO USAR:
 1. Acesse a página de um produto na Shopee ou Mercado Livre
@@ -30,7 +33,9 @@ COMO USAR:
 ATENÇÃO:
 - Para Mercado Livre, acesse a página individual do produto
   (não funciona em páginas de lista ou busca)
-- Se não capturar, feche e reabra a aba e tente novamente`,
+- Se não capturar, feche e reabra a aba e tente novamente
+- Não mova ou delete a pasta após instalar — o Chrome precisa
+  dela para manter a extensão funcionando`,
   },
   {
     title: '📣 Como criar e disparar um anúncio',
@@ -227,6 +232,34 @@ export default function Help() {
           <h1 className="text-2xl font-bold text-text-primary">Central de Ajuda</h1>
           <p className="text-text-secondary text-sm mt-0.5">Tutoriais e perguntas frequentes</p>
         </div>
+      </div>
+
+      {/* Extensão Chrome card */}
+      <div className="card border-2 border-accent/30 bg-accent/5">
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-accent/15 rounded-xl flex items-center justify-center">
+              <Puzzle size={20} className="text-accent" />
+            </div>
+            <div>
+              <p className="text-text-primary font-semibold text-sm">⚡ Extensão para Chrome</p>
+              <p className="text-text-secondary text-xs mt-0.5">
+                Capture produtos da Shopee e Mercado Livre com 1 clique
+              </p>
+            </div>
+          </div>
+          <a
+            href={EXT_DOWNLOAD_URL}
+            download
+            className="btn-primary text-sm"
+          >
+            <Download size={15} />
+            Baixar extensão
+          </a>
+        </div>
+        <p className="text-text-secondary text-xs mt-3 pt-3 border-t border-border">
+          Após baixar, extraia o ZIP e instale via <span className="text-text-primary font-mono">chrome://extensions</span> → "Carregar sem compactação" → selecione a pasta <span className="text-text-primary font-mono">zapofertas-main/chrome-extension</span>. Veja o passo a passo completo no acordeão abaixo.
+        </p>
       </div>
 
       {/* Suporte card */}

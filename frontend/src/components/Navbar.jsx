@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, PlusCircle, Users, History,
-  Settings, LogOut, Zap, Wifi, WifiOff, Shield, HelpCircle,
+  Settings, LogOut, Zap, Wifi, WifiOff, Shield, HelpCircle, Puzzle,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { to: '/historico', icon: History, label: 'Histórico' },
   { to: '/configuracoes', icon: Settings, label: 'Configurações' },
   { to: '/ajuda', icon: HelpCircle, label: 'Ajuda' },
+  { to: '/extensao', icon: Puzzle, label: 'Instalar Extensão' },
 ];
 
 export default function Navbar() {
