@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Download, Chrome, FolderOpen, ToggleRight, Puzzle, CheckCircle, ChevronDown, ChevronUp, Zap, ExternalLink } from 'lucide-react';
+import { Download, Chrome, FolderOpen, ToggleRight, Puzzle, CheckCircle, ChevronDown, ChevronUp, Zap, ExternalLink, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 const EXT_DOWNLOAD_URL = 'https://github.com/rafsanchez2rs-jpg/zapofertas/releases/download/v1.1/zapofertas-extension.zip';
 
@@ -177,9 +178,20 @@ function FaqItem({ q, a }) {
 }
 
 export default function InstallExtension() {
+  const navigate = useNavigate();
+
   return (
     <div className="min-h-screen bg-bg">
       <div className="max-w-2xl mx-auto px-4 py-10 space-y-10">
+
+        {/* Voltar */}
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors text-sm"
+        >
+          <ArrowLeft size={16} />
+          Voltar
+        </button>
 
         {/* Header */}
         <div className="text-center space-y-4">
