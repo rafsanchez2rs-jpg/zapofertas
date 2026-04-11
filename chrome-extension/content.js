@@ -305,16 +305,42 @@ if (!window.__zapOfertasLoaded) {
       }
     }
 
-    // Pix
+    // Pix — extrai apenas o valor imediatamente adjacente à palavra "pix"
     let pixPrice = null;
-    document.querySelectorAll('*').forEach(el => {
-      if (pixPrice || el.children.length > 3 || isInShippingSection(el)) return;
-      const txt = el.innerText || '';
-      if (/pix/i.test(txt) && /R\$/.test(txt)) {
-        const v = cleanPrice(txt);
-        if (v && v !== salePrice && v > 1) pixPrice = v;
+    const pixPatterns = [
+      /pix[:\s]*r\$\s*([\d.]+(?:,\d+)?)/i,
+      /r\$\s*([\d.]+(?:,\d+)?)\s*(?:no\s+)?pix/i,
+    ];
+
+    // Estratégia 1: varrer text nodes buscando padrão "pix R$X" ou "R$X no pix"
+    const _pixWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let _pixNode;
+    while ((_pixNode = _pixWalker.nextNode()) && !pixPrice) {
+      const txt = _pixNode.textContent.trim();
+      for (const pat of pixPatterns) {
+        const m = txt.match(pat);
+        if (m) {
+          const v = cleanPrice(m[1]);
+          if (v && v > 1 && v < 50000) { pixPrice = v; break; }
+        }
       }
-    });
+    }
+
+    // Estratégia 2: elementos curtos (< 60 chars) contendo pix + R$
+    if (!pixPrice) {
+      document.querySelectorAll('*').forEach(el => {
+        if (pixPrice || el.children.length > 3 || isInShippingSection(el)) return;
+        const txt = (el.innerText || '').trim();
+        if (txt.length > 60 || !/pix/i.test(txt) || !/R\$/.test(txt)) return;
+        for (const pat of pixPatterns) {
+          const m = txt.match(pat);
+          if (m) {
+            const v = cleanPrice(m[1]);
+            if (v && v > 1 && v < 50000) { pixPrice = v; break; }
+          }
+        }
+      });
+    }
 
     // Cupom
     let couponValue = null;
