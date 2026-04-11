@@ -98,7 +98,7 @@ router.post('/extract-from-image', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Imagem é obrigatória' });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GEMINI__API_KEY;
     if (!apiKey || apiKey === 'sua_chave_aqui') {
       return res.json({ success: false, manual: true });
     }
