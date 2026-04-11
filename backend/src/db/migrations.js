@@ -35,7 +35,7 @@ async function runMigrations() {
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       wa_group_id TEXT NOT NULL,
       name TEXT NOT NULL,
-      active INTEGER NOT NULL DEFAULT 1,
+      active INTEGER NOT NULL DEFAULT 0,
       collection_id INTEGER REFERENCES collections(id) ON DELETE SET NULL,
       participant_count INTEGER DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -149,6 +149,11 @@ async function runMigrations() {
       console.log(`[Admin] Criado: ${admin.email}`);
     }
   }
+
+  // Grupos: muda default de active para 0 (usuário ativa manualmente)
+  await pool.query(`
+    ALTER TABLE groups ALTER COLUMN active SET DEFAULT 0
+  `).catch(() => {}); // ignora se já estiver correto
 
   // Tabela para sessão Baileys (substitui Evolution API)
   await pool.query(`
