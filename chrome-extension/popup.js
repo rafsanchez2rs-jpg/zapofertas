@@ -215,6 +215,11 @@ async function init() {
 
 document.getElementById('btn-send').addEventListener('click', sendToBackend);
 
+document.getElementById('product-img').addEventListener('error', () => {
+  document.getElementById('product-img').style.display = 'none';
+  document.getElementById('product-img-placeholder').style.display = 'flex';
+});
+
 document.getElementById('btn-retry').addEventListener('click', () => {
   init();
 });
